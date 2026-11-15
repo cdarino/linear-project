@@ -67,6 +67,13 @@ Requirement price: how much the daily cost changes if a limit moves by one unit.
 Reduced cost: how much cheaper an unused food would need to be to join the menu.
 Pivot: one move from a corner to a cheaper neighboring corner.
 
+WHERE THE LIMITS COME FROM
+Every group uses the Philippine Dietary Reference Intakes 2015 (FNRI-DOST). Adults are ages 19 to 29 and teens are 16 to 18.
+Calories: at least the Recommended Energy Intake. Protein, calcium, iron and vitamin C: at least the Recommended Nutrient Intake.
+Fat and carbohydrates: the recommended percent of calories, turned into grams.
+Sodium: at least 500 mg and under 2,000 mg.
+The PDRI says the 28 mg of iron for women and teen girls usually needs iron-rich or fortified foods or a supplement. That is why iron drives the cost for those groups.
+
 Amounts like 2.3 cups are fine for the model. Round to the nearest half serving in practice.
 Prices and nutrition values are rough estimates for coursework, not medical advice."""
 

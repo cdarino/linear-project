@@ -102,14 +102,32 @@ FOODS = [
     ("Instant noodles", "1 pack", 10, 3, PLANT, [270, 6, 11, 38, 1, 20, 1.5, 0, 1000]),
 ]
 
+# Daily requirements from the Philippine Dietary Reference Intakes 2015 (FNRI-DOST).
+# Adults are the 19-29 group and teens are the 16-18 group.
+#   Calories   at least the Recommended Energy Intake (REI)
+#   Protein    at least the Recommended Nutrient Intake (RNI)
+#   Fat, carbs the Acceptable Macronutrient Distribution Range (AMDR), a percent of the REI.
+#              Grams = REI x percent / (9 kcal per g of fat, or 4 kcal per g of carbs)
+#   Fiber      at least the low end of the PDRI range
+#   Calcium, iron, vitamin C   at least the RNI. The PDRI notes that the 28 mg of iron
+#              for women and teen girls "cannot be met by usual diet alone".
+#   Sodium     at least the Adequate Intake of 500 mg, and under 2,000 mg as the PDRI
+#              recommends for adults (from the WHO). We use the same cap for teens.
+def pdri(rei, protein, fat_pct, carb_pct, fiber, calcium, iron, vitamin_c):
+    """Turn one PDRI group's values into (minimum, maximum) pairs in the order of NUTRIENTS."""
+    fat = tuple(round(rei * pct / 100 / 9) for pct in fat_pct)
+    carbs = tuple(round(rei * pct / 100 / 4) for pct in carb_pct)
+    return [(rei, None), (protein, None), fat, carbs, (fiber, None),
+            (calcium, None), (iron, None), (vitamin_c, None), (500, 2000)]
+
+
 # Daily (minimum, maximum) for each nutrient, in the order of NUTRIENTS. None means no limit.
+#                          REI   protein  fat %     carbs %   fiber calcium iron vit C
 PRESETS = {
-    "Adult woman": [(1800, 2300), (50, None), (40, 70), (200, 300), (25, None),
-                    (1000, None), (18, None), (75, None), (None, 2300)],
-    "Adult man":   [(2200, 2800), (60, None), (50, 85), (250, 350), (30, None),
-                    (1000, None), (8, None), (90, None), (None, 2300)],
-    "Teen":        [(2000, 2600), (52, None), (45, 80), (230, 340), (26, None),
-                    (1300, None), (15, None), (65, None), (None, 2300)],
+    "Adult woman": pdri(1930, 62, (15, 30), (55, 75), 20, 750, 28, 60),
+    "Adult man":   pdri(2530, 71, (15, 30), (55, 75), 20, 750, 12, 70),
+    "Teen girl":   pdri(2280, 61, (15, 30), (55, 79), 21, 1000, 28, 60),
+    "Teen boy":    pdri(3010, 72, (15, 30), (55, 79), 21, 1000, 14, 70),
 }
 
 # Which kinds of food each eating style leaves out
@@ -440,7 +458,7 @@ def make_plots(p: Problem, s: Solution, folder="figures"):
     ax.set_yticks(range(len(NUTRIENTS)), [n for n, _ in NUTRIENTS])
     ax.invert_yaxis()
     ax.set_xlabel("Percent of the limit (dashed line = 100%, red tick = maximum)")
-    ax.set_title("Figure 2. Every requirement is met (teal: minimums, purple: maximums)")
+    ax.set_title("Figure 2. Every requirement is met (purple bars are maximum-only limits)", fontsize=10)
     fig.tight_layout(); fig.savefig(f"{folder}/fig2_nutrition.png"); plt.close(fig)
 
     # 3. What drives the cost
@@ -467,14 +485,14 @@ def make_plots(p: Problem, s: Solution, folder="figures"):
 
     # 5. Variety versus cost for each group
     fig, ax = plt.subplots(figsize=(7, 3.2))
-    for preset, color in zip(PRESETS, (teal, purple, coral)):
+    for preset, color in zip(PRESETS, (teal, purple, coral, "#BA7517")):
         caps = range(2, 9)
         costs = [solve_diet(build_problem(preset, "anything", v)).cost for v in caps]
         ax.plot(caps, costs, "o-", color=color, label=preset)
     ax.set_xlabel("Most servings allowed of any one food")
     ax.set_ylabel("Cheapest day (PHP)")
-    ax.set_title("Figure 5. More variety (a lower cap) costs a little more")
-    ax.legend(frameon=False)
+    ax.set_title("Figure 5. More variety (a lower cap) costs more")
+    ax.legend(frameon=False, ncol=2, loc="upper right", fontsize=9)
     fig.tight_layout(); fig.savefig(f"{folder}/fig5_variety.png"); plt.close(fig)
 
     # 6. The 2-food example: the region of valid menus and its corners
