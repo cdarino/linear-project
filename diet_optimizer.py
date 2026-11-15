@@ -425,97 +425,227 @@ def example():
 
 # ---------------------------------------------------------------------------
 # FIGURES FOR THE REPORT (matplotlib)
+# Each draw_* function draws one figure onto a given set of axes. make_plots
+# saves all six, and the window shows figures 4, 5 and 6 with the same
+# functions, so the screen and the report always match.
 # ---------------------------------------------------------------------------
-def make_plots(p: Problem, s: Solution, folder="figures"):
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
+TEAL, PURPLE, CORAL, AMBER = "#1D9E75", "#7F77DD", "#D85A30", "#E3A008"
+INK, MUTED, GRID, ZONE = "#101828", "#667085", "#E4E7EC", "#CDEEDF"
+GROUP_COLORS = dict(zip(PRESETS, (TEAL, PURPLE, CORAL, AMBER)))
 
-    os.makedirs(folder, exist_ok=True)
-    plt.rcParams.update({"figure.dpi": 150, "axes.spines.top": False, "axes.spines.right": False})
-    teal, coral, purple, gray = "#1D9E75", "#D85A30", "#7F77DD", "#888780"
 
-    # 1. Menu: what each food costs
+def figure_style():
+    """Matplotlib settings shared by the saved figures and the window's charts."""
+    from matplotlib import font_manager
+    installed = {f.name for f in font_manager.fontManager.ttflist}
+    fonts = [f for f in ("Segoe UI", "Helvetica Neue", "Arial") if f in installed] + ["DejaVu Sans"]
+    return {"font.family": "sans-serif", "font.sans-serif": fonts,
+            "axes.titlelocation": "left", "axes.titlesize": 11.5, "axes.titlepad": 12,
+            "axes.titlecolor": INK, "axes.labelsize": 9.5}
+
+
+def style_axes(ax, grid="x"):
+    """No box, light grid lines along `grid` ("x", "y", "both" or None), quiet labels."""
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    for side in ("left", "bottom"):
+        ax.spines[side].set_color("#D0D5DD")
+    ax.tick_params(colors=MUTED, labelsize=8.5, length=0, pad=6)
+    ax.xaxis.label.set_color("#344054")
+    ax.yaxis.label.set_color("#344054")
+    if grid:
+        ax.grid(axis=grid, color=GRID, linewidth=0.8)
+        ax.set_axisbelow(True)
+
+
+def draw_menu(ax, p: Problem, s: Solution):
+    """Figure 1: what each food on the menu costs."""
+    style_axes(ax, "x")
     used = [j for j in np.argsort(s.x * p.c) if s.x[j] > 1e-6]
-    fig, ax = plt.subplots(figsize=(7, 3.6))
-    ax.barh([p.names[j] for j in used], [s.x[j] * p.c[j] for j in used], color=teal)
+    costs = [s.x[j] * p.c[j] for j in used]
+    top = max(costs, default=1.0)
+    ax.barh([p.names[j] for j in used], costs, color=TEAL, height=0.62)
     for k, j in enumerate(used):
-        ax.text(s.x[j] * p.c[j] + 0.4, k, f"{s.x[j]:.2f} x {p.servings[j]}", va="center", fontsize=8)
-    ax.set_xlabel("Cost (PHP)")
-    ax.set_title(f"Figure 1. Cheapest menu, total PHP {s.cost:.2f}")
-    fig.tight_layout(); fig.savefig(f"{folder}/fig1_menu.png"); plt.close(fig)
+        ax.text(costs[k] + top * 0.015, k, f"{s.x[j]:.2f} × {p.servings[j]}   ₱{costs[k]:.2f}",
+                va="center", fontsize=8.5, color=MUTED)
+    ax.set_xlim(0, top * 1.4)
+    ax.set_xlabel("Cost (₱)")
 
-    # 2. Nutrition check: each total as a percent of its limit
+
+def draw_nutrition(ax, p: Problem, s: Solution):
+    """Figure 2: each of the day's totals (N @ x) as a percent of its limit."""
+    style_axes(ax, "x")
     totals = p.N @ s.x
-    fig, ax = plt.subplots(figsize=(7, 3.8))
+    right = 100.0
     for i, ((name, unit), (lo, hi)) in enumerate(zip(NUTRIENTS, p.limits)):
         ref = lo if lo is not None else hi
-        ax.barh(i, 100 * totals[i] / ref, color=teal if lo is not None else purple)
-        ax.text(100 * totals[i] / ref + 2, i, f"{totals[i]:.0f} {unit}", va="center", fontsize=8)
+        if not ref:
+            continue
+        pct = 100 * totals[i] / ref
+        label_x = pct + 4
+        ax.barh(i, pct, color=TEAL if lo is not None else PURPLE, height=0.62)
         if lo is not None and hi is not None:
-            ax.plot([100 * hi / ref] * 2, [i - 0.4, i + 0.4], color=coral, lw=2)
-    ax.axvline(100, color="black", lw=1, ls="--")
+            tick = 100 * hi / ref
+            ax.plot([tick] * 2, [i - 0.38, i + 0.38], color=CORAL, lw=2.2, solid_capstyle="butt")
+            if 0 <= tick - pct < 45:                     # the tick sits where the label would go
+                label_x = tick + 4
+            right = max(right, tick)
+        ax.text(label_x, i, f"{totals[i]:,.0f} {unit}", va="center", fontsize=8.5, color=MUTED)
+        right = max(right, pct)
+    ax.axvline(100, color=INK, lw=1, ls=(0, (4, 3)))
     ax.set_yticks(range(len(NUTRIENTS)), [n for n, _ in NUTRIENTS])
     ax.invert_yaxis()
+    ax.set_xlim(0, right * 1.15)
     ax.set_xlabel("Percent of the limit (dashed line = 100%, red tick = maximum)")
-    ax.set_title("Figure 2. Every requirement is met (purple bars are maximum-only limits)", fontsize=10)
-    fig.tight_layout(); fig.savefig(f"{folder}/fig2_nutrition.png"); plt.close(fig)
 
-    # 3. What drives the cost
+
+def draw_cost_drivers(ax, p: Problem, s: Solution):
+    """Figure 3: the price of each requirement that pushes the cost up (from the mirror problem)."""
+    style_axes(ax, "x")
     drivers = sorted(((v, lab) for v, lab in zip(s.y, p.labels) if v > 1e-7 and lab[0] != "cap"),
-                     reverse=True)
-    fig, ax = plt.subplots(figsize=(7, 2.8))
-    ax.barh([f"{name} ({kind})" for _, (kind, name, _) in drivers], [v for v, _ in drivers], color=coral)
+                     key=lambda t: -t[0])
+    ax.barh([f"{name} ({kind})" for _, (kind, name, _) in drivers], [v for v, _ in drivers],
+            color=CORAL, height=0.55)
     for k, (v, (_, _, unit)) in enumerate(drivers):
-        ax.text(v, k, f"  PHP {v:.3f} per {unit}", va="center", fontsize=8)
+        ax.text(v, k, f"  ₱{v:.3f} per {unit}", va="center", fontsize=8.5, color=MUTED)
     ax.invert_yaxis()
-    ax.set_xlabel("Price of one more unit of the requirement (PHP)")
-    ax.set_title("Figure 3. Requirements that push the cost up (from the mirror problem)")
-    fig.tight_layout(); fig.savefig(f"{folder}/fig3_cost_drivers.png"); plt.close(fig)
+    ax.set_xlim(0, max((v for v, _ in drivers), default=1.0) * 1.4)
+    ax.set_xlabel("Price of one more unit of the requirement (₱)")
 
-    # 4. Solver progress: the guaranteed minimum rises each pivot
-    fig, ax = plt.subplots(figsize=(7, 3))
-    ax.plot(range(len(s.steps) + 1), [0] + [st.value for st in s.steps], "o-", color=purple)
-    ax.axhline(s.cost, color=teal, ls="--", lw=1)
-    ax.text(0.2, s.cost - 9, f"cheapest menu PHP {s.cost:.2f}", color=teal, fontsize=9)
+
+def draw_solver_progress(ax, s: Solution, line=TEAL):
+    """Figure 4: the guaranteed minimum after each pivot rises until it meets a real menu."""
+    from matplotlib.ticker import MaxNLocator
+    style_axes(ax, "y")
+    xs = range(len(s.steps) + 1)
+    ys = [0] + [st.value for st in s.steps]
+    ax.fill_between(xs, ys, color=PURPLE, alpha=0.10, linewidth=0)
+    ax.plot(xs, ys, "o-", color=PURPLE, lw=2, ms=3.5)
+    ax.axhline(s.cost, color=line, lw=1.2, ls=(0, (4, 3)))
+    ax.annotate(f"cheapest menu ₱{s.cost:.2f}", xy=(0, s.cost), xytext=(2, 6),
+                textcoords="offset points", color=line, fontsize=9)
+    ax.set_xlim(0, max(len(s.steps), 1))
+    ax.set_ylim(0, max(s.cost, 1e-9) * 1.15)
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
     ax.set_xlabel("Pivot number")
-    ax.set_ylabel("Guaranteed minimum (PHP)")
-    ax.set_title("Figure 4. Each pivot raises the proven lower bound until it meets a real menu")
-    fig.tight_layout(); fig.savefig(f"{folder}/fig4_solver_progress.png"); plt.close(fig)
+    ax.set_ylabel("Guaranteed minimum (₱)")
 
-    # 5. Variety versus cost for each group
-    fig, ax = plt.subplots(figsize=(7, 3.2))
-    for preset, color in zip(PRESETS, (teal, purple, coral, "#BA7517")):
-        caps = range(2, 9)
-        costs = [solve_diet(build_problem(preset, "anything", v)).cost for v in caps]
-        ax.plot(caps, costs, "o-", color=color, label=preset)
+
+def variety_costs(diet="anything", prices=None, exclude=(), own_max=None, groups=None,
+                  varieties=range(2, 9)):
+    """
+    Purpose: the cheapest day for each group at each variety level (the data of figure 5).
+    `groups` maps a name to its (min, max) limits and defaults to the four presets.
+    A setting with no valid menu gives nan, which leaves a gap in its line.
+    """
+    groups = groups or PRESETS
+    any_food = any(f[4] not in DIETS[diet] and f[0] not in exclude for f in FOODS)
+    costs = {}
+    for name, limits in groups.items():
+        row = []
+        for v in varieties:
+            s = solve_diet(build_problem(diet=diet, variety=v, prices=prices, exclude=exclude,
+                                         limits=limits, own_max=own_max)) if any_food else None
+            row.append(np.nan if s is None else s.cost)
+        costs[name] = row
+    return costs
+
+
+def draw_variety(ax, costs, varieties=range(2, 9), mark=None):
+    """
+    Figure 5: the cheapest day at each variety level, one line per group, named at its right end.
+    `mark` = (group name, variety) rings one point. The window uses it for the current setting.
+    """
+    style_axes(ax, "y")
+    xs = list(varieties)
+    ends = []                                          # (label height, x, y, name, color)
+    for name, ys in costs.items():
+        color = GROUP_COLORS.get(name, INK)
+        ax.plot(xs, ys, "o-", color=color, lw=2, ms=4.5)
+        last = [i for i, y in enumerate(ys) if not np.isnan(y)]
+        if last:
+            ends.append([ys[last[-1]], xs[last[-1]], ys[last[-1]], name, color])
+    values = [y for ys in costs.values() for y in ys if not np.isnan(y)]
+    if values:
+        lo, hi = min(values), max(values)
+        gap = (hi - lo) * 0.08 or 1.0
+        ends.sort()
+        for k in range(1, len(ends)):                  # push labels apart so they never overlap
+            ends[k][0] = max(ends[k][0], ends[k - 1][0] + gap)
+        for label_y, x, y, name, color in ends:
+            ax.annotate(f"{name}  ₱{y:.0f}", xy=(x, y), xytext=(x + 0.3, label_y), textcoords="data",
+                        va="center", fontsize=8.5, color=color)
+        ax.set_ylim(lo - gap, max(hi, ends[-1][0]) + gap)
+    if mark and mark[0] in costs and mark[1] in xs:
+        y = costs[mark[0]][xs.index(mark[1])]
+        if not np.isnan(y):
+            ax.plot(mark[1], y, "o", ms=13, mfc="none", mec=GROUP_COLORS.get(mark[0], INK), mew=2)
+    ax.set_xticks(xs)
+    ax.set_xlim(xs[0] - 0.3, xs[-1] + 0.3)
     ax.set_xlabel("Most servings allowed of any one food")
-    ax.set_ylabel("Cheapest day (PHP)")
-    ax.set_title("Figure 5. More variety (a lower cap) costs more")
-    ax.legend(frameon=False, ncol=2, loc="upper right", fontsize=9)
-    fig.tight_layout(); fig.savefig(f"{folder}/fig5_variety.png"); plt.close(fig)
+    ax.set_ylabel("Cheapest day (₱)")
 
-    # 6. The 2-food example: the region of valid menus and its corners
-    fig, ax = plt.subplots(figsize=(5.6, 4.6))
-    g = np.linspace(0, 14, 300)
-    X, Y = np.meshgrid(g, g)
+
+def draw_two_food(ax):
+    """Figure 6: the 2-food example. The valid menus form a region with flat sides and the cheapest is a corner."""
     E = EXAMPLE
-    valid = (E["nutrition"][0, 0] * X + E["nutrition"][0, 1] * Y >= 1200) & \
-            (E["nutrition"][1, 0] * X + E["nutrition"][1, 1] * Y >= 48)
-    ax.contourf(X, Y, valid, levels=[0.5, 1], colors=[teal], alpha=0.25)
-    ax.plot(g, 12 - 2 * g, color=coral, lw=2, label="200x + 100y = 1200 (calories)")
-    ax.plot(g, 6 - g / 2, color=purple, lw=2, ls="--", label="4x + 8y = 48 (protein)")
-    ax.plot(g, 8 - g, color=gray, lw=1, ls=":", label="10x + 10y = 80 (cost line)")
-    for (cx, cy, txt) in ((0, 12, "A  PHP 120"), (4, 4, "B  PHP 80 (cheapest)"), (12, 0, "C  PHP 120")):
-        ax.plot(cx, cy, "o", color="black", ms=6)
-        ax.annotate(txt, (cx, cy), xytext=(8, 8), textcoords="offset points", fontsize=9)
-    ax.set_xlim(0, 14); ax.set_ylim(0, 14)
-    ax.set_xlabel("Cups of rice (x)"); ax.set_ylabel("Eggs (y)")
-    ax.set_title("Figure 6. The cheapest valid menu is a corner")
-    ax.legend(fontsize=8, frameon=False, loc="upper right")
-    fig.tight_layout(); fig.savefig(f"{folder}/fig6_two_food_region.png"); plt.close(fig)
+    A, b, c = E["nutrition"], E["need"], E["cost"]
+    style_axes(ax, "both")
+    g = np.linspace(0, 14, 400)
+    X, Y = np.meshgrid(g, g)
+    valid = (A[0, 0] * X + A[0, 1] * Y >= b[0]) & (A[1, 0] * X + A[1, 1] * Y >= b[1])
+    ax.contourf(X, Y, valid, levels=[0.5, 1], colors=[ZONE])
+    best = np.linalg.solve(A, b)                       # B: where the two boundary lines cross
+    for i, (color, style, what) in enumerate(((CORAL, "-", "calories"), (PURPLE, "--", "protein"))):
+        ax.plot(g, (b[i] - A[i, 0] * g) / A[i, 1], color=color, lw=2.2, ls=style,
+                label=f"{A[i, 0]:g}x + {A[i, 1]:g}y = {b[i]:g} ({what})")
+    ax.plot(g, (c @ best - c[0] * g) / c[1], color=MUTED, lw=1.2, ls=":",
+            label=f"{c[0]:g}x + {c[1]:g}y = {c @ best:g} (cost line)")
+    corners = (("A", np.array([0, max(b / A[:, 1])]), (10, 6), "left"),      # on the eggs axis
+               ("B", best, (10, 8), "left"),
+               ("C", np.array([max(b / A[:, 0]), 0]), (0, 12), "center"))    # on the rice axis
+    for name, pt, offset, align in corners:
+        cheapest = name == "B"
+        ax.plot(*pt, "o", color=TEAL if cheapest else INK, ms=8 if cheapest else 6, clip_on=False, zorder=3)
+        ax.annotate(f"{name}  ₱{c @ pt:g}" + ("  cheapest" if cheapest else ""), pt, xytext=offset,
+                    textcoords="offset points", ha=align, fontsize=9, color=INK,
+                    fontweight="bold" if cheapest else "normal")
+    ax.set_xlim(0, 14)
+    ax.set_ylim(0, 14)
+    ax.set_xlabel("Cups of rice (x)")
+    ax.set_ylabel("Eggs (y)")
+    ax.legend(fontsize=8, loc="upper right", framealpha=0.92, edgecolor="none")
 
-    print(f"Saved 6 figures in {folder}/")
+
+def make_plots(p: Problem, s: Solution, folder="figures"):
+    """Save figures 1 to 6 as PNG files (uses Matplotlib's Figure directly, so no window opens)."""
+    import matplotlib
+    from matplotlib.figure import Figure
+
+    os.makedirs(folder, exist_ok=True)
+    figures = [
+        ("fig1_menu.png", (7, 3.6), f"Figure 1. Cheapest menu, total ₱{s.cost:.2f}",
+         lambda ax: draw_menu(ax, p, s)),
+        ("fig2_nutrition.png", (7, 3.8), "Figure 2. Every requirement is met (purple bars are maximum-only limits)",
+         lambda ax: draw_nutrition(ax, p, s)),
+        ("fig3_cost_drivers.png", (7, 2.8), "Figure 3. Requirements that push the cost up (from the mirror problem)",
+         lambda ax: draw_cost_drivers(ax, p, s)),
+        ("fig4_solver_progress.png", (7, 3.2),
+         "Figure 4. Each pivot raises the proven lower bound until it meets a real menu",
+         lambda ax: draw_solver_progress(ax, s)),
+        ("fig5_variety.png", (7, 3.4), "Figure 5. More variety (a lower cap) costs more",
+         lambda ax: draw_variety(ax, variety_costs())),
+        ("fig6_two_food_region.png", (5.8, 4.8), "Figure 6. The cheapest valid menu is a corner", draw_two_food),
+    ]
+    with matplotlib.rc_context(figure_style()):
+        for name, size, title, draw in figures:
+            fig = Figure(figsize=size, layout="constrained")
+            ax = fig.add_subplot()
+            draw(ax)
+            ax.set_title(title)
+            fig.savefig(os.path.join(folder, name), dpi=150, facecolor="white", bbox_inches="tight",
+                        pad_inches=0.12)
+    print(f"Saved {len(figures)} figures in {folder}/")
 
 
 # ---------------------------------------------------------------------------
