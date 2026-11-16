@@ -82,9 +82,9 @@ Use the **left panel** to choose who the menu is for, the eating style and the v
 | Foods | Turn foods on or off, search, and edit prices and serving limits. |
 | Limits | Edit the minimum and maximum for each nutrient. Leave a box empty for no limit. |
 | Why | Which limits push the cost up, and how much cheaper an unused food would need to be. |
-| Solver steps | Every pivot of the simplex method (figure 4). |
-| Figures | Figure 5 (variety versus cost, following your settings) and figure 6 (the 2-food example). |
-| Guide | How to use the program and how the math works. |
+| Variety | What a more varied menu costs, for every group and at every level. Click a point or a row to switch to that setting. This is report figure 5, drawn for your current settings. |
+| Solver steps | Every pivot of the simplex method, and the guaranteed minimum after each one (report figure 4). |
+| Guide | How to use the program and how the math works, with the 2-food example drawn in two dimensions (report figure 6). |
 
 Press **Ctrl+1** to **Ctrl+8** to switch tabs.
 

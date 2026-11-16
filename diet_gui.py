@@ -17,9 +17,10 @@ Pages (Ctrl+1 to Ctrl+8 switch between them):
     Foods          turn foods on or off, edit prices and serving limits
     Limits         edit the minimum and maximum for each nutrient
     Why            which requirements push the cost up, and which foods just missed
-    Solver steps   every simplex pivot and the guaranteed minimum after each one (figure 4)
-    Figures        report figure 5 (variety versus cost) and figure 6 (the 2-food example)
-    Guide          how to use the program and how the math works
+    Variety        what a more varied menu costs, for every group (report figure 5)
+    Solver steps   every simplex pivot and the guaranteed minimum after each one (report figure 4)
+    Guide          how to use the program and how the math works, with the 2-food
+                   example drawn in two dimensions (report figure 6)
 
 Needs only Tkinter, NumPy and Matplotlib. Pillow, which Matplotlib already
 installs, draws the smooth rounded corners.
@@ -79,11 +80,11 @@ PAGES = [
      "The daily minimum and maximum for each nutrient. Leave a box empty for no limit."),
     ("Why", "What drives the cost",
      "Prices from the mirror problem: how the daily cost reacts when a limit or a price moves."),
+    ("Variety", "What variety costs",
+     "Allowing fewer servings of any one food makes the menu more varied, but usually more expensive. "
+     "Use this page to choose a variety level."),
     ("Solver steps", "Solver steps",
      "The simplex method on the mirror problem. Each pivot is one Gauss-Jordan step on the tableau."),
-    ("Figures", "Report figures",
-     "Figures 5 and 6 from the report. Figure 5 follows your settings; python diet_optimizer.py --plots "
-     "saves all six."),
     ("Guide", "Guide", "How to use the program and how the math works."),
 ]
 
@@ -102,9 +103,10 @@ GUIDE = [
             ("Limits", "edit minimums and maximums. Leave a box empty for no limit."),
             ("Why", "which limits push the cost up, and how much cheaper an unused food "
                     "would need to be."),
+            ("Variety", "what a more varied menu costs, for every group. Click a point or a row to "
+                        "use that setting."),
             ("Solver steps", "every pivot the simplex method makes."),
-            ("Figures", "how variety changes the cost for each group, and the 2-food example "
-                        "that shows why the cheapest menu is a corner.")]),
+            ("Guide", "this page. The picture on the right shows the method on a 2-food problem.")]),
     ("h", "How the math works"),
     ("ol", ["Foods are vectors. Each food's nutrition label is a column of the matrix N.",
             "A menu is a vector x of servings. The day's totals are the product N x, a linear "
@@ -116,6 +118,14 @@ GUIDE = [
             "The solver works on the mirror problem built from the transpose of the requirement "
             "matrix. It puts a price on every requirement, and the same final table also holds "
             "the menu."]),
+    ("p", "In symbols, with G x ≥ h holding every limit as one system:"),
+    ("code", "Cheapest menu\n"
+             "  minimize    c · x\n"
+             "  subject to  lo ≤ N x ≤ hi,  0 ≤ x ≤ cap\n"
+             "Mirror problem\n"
+             "  maximize    h · y\n"
+             "  subject to  Gᵀ y ≤ c,  y ≥ 0"),
+    ("p", "At the answer both problems have the same value: c · x = h · y."),
     ("h", "Words you will see"),
     ("dl", [("Serving", "one standard portion, such as 1 cup or 1 piece."),
             ("Requirement price", "how much the daily cost changes if a limit moves by one unit."),
@@ -134,6 +144,9 @@ GUIDE = [
     ("p", "Amounts like 2.3 cups are fine for the model. Round to the nearest half serving "
           "in practice."),
     ("p", "Prices and nutrition values are rough estimates for coursework, not medical advice."),
+    ("h", "Shortcuts"),
+    ("dl", [("Ctrl+1 to Ctrl+8", "switch pages, in the order of the tabs."),
+            ("Esc", "clear the food search.")]),
 ]
 
 
@@ -707,8 +720,8 @@ class DietApp(tk.Tk):
         self._foods_page()
         self._limits_page()
         self._why_page()
+        self._variety_page()
         self._steps_page()
-        self._figures_page()
         self._guide_page()
         self.show_page("Menu")
 
@@ -1190,35 +1203,36 @@ class DietApp(tk.Tk):
         right.header("Proven minimum after each pivot", "The mirror value rises until it meets a real menu.")
         self.steps_fig, self.steps_ax, self.steps_canvas = self._chart(right.body)
 
-    def _figures_page(self):
-        body, _ = self._page("Figures")
-        body.columnconfigure((0, 1), weight=1, uniform="figures")
+    def _variety_page(self):
+        body, _ = self._page("Variety")
+        body.columnconfigure(0, weight=3, uniform="variety")
+        body.columnconfigure(1, weight=2, uniform="variety")
         body.rowconfigure(0, weight=1)
         left = Card(body)
         left.grid(row=0, column=0, sticky="nsew", padx=(0, px(16)))
-        left.header("Figure 5. More variety costs more",
-                    "The cheapest day for each group at every variety level, using your eating style, "
-                    "prices and foods. The ring marks your current setting.")
+        left.header("Cheapest day at each variety level",
+                    "One line per group, using your eating style, prices and foods. "
+                    "Your setting is circled. Click any point to switch to it.")
+        # Packed before the chart so that on a short window the chart shrinks, not this note
+        note = wrapping_label(left.body, "This chart is figure 5 of the report. python diet_optimizer.py "
+                                         "--plots saves it with the default prices.",
+                              UI.font["small"], SUBTLE, SURFACE)
+        note.pack(side="bottom", fill="x", pady=(px(8), 0))
+        self.extras.append((note, dict(side="bottom", fill="x", pady=(px(8), 0))))
         self.variety_fig, self.variety_ax, self.variety_canvas = self._chart(left.body)
-        self._variety_stale = True
+        self.variety_canvas.mpl_connect("button_press_event", self._variety_click)
+        self.variety_canvas.mpl_connect("motion_notify_event", self._variety_hover)
+        self._variety_stale, self._variety_costs = True, {}
+
         right = Card(body)
         right.grid(row=0, column=1, sticky="nsew")
-        right.header("Figure 6. The cheapest valid menu is a corner",
-                     "The 2-food example: rice (200 kcal, 4 g protein) and eggs (100 kcal, 8 g), "
-                     "₱10 each, with at least 1,200 kcal and 48 g protein.")
-        # Packed before the chart so that on a short window the chart shrinks, not this caption
-        wrapping_label(right.body, "Each corner solves a 2 × 2 system made from two boundary lines. "
-                                   "B is the cheapest. Run python diet_optimizer.py --example to see "
-                                   "every row operation.", UI.font["small"], MUTED, SURFACE).pack(
-            side="bottom", fill="x", pady=(px(8), 0))
-        _, ax, canvas = self._chart(right.body)
-        d.draw_two_food(ax)
-        canvas.draw_idle()
+        right.header("Your cost at each level", "Compared with your current setting. Click a row to switch to it.")
+        self.level_list = self._rows(right.body, self._draw_level_row, px(54), fit=True, min_row=px(40),
+                                     on_click=lambda row: self.use_setting(row[3], row[0]))
 
     def _guide_page(self):
         body, _ = self._page("Guide")
-        body.columnconfigure(0, weight=3, uniform="guide")
-        body.columnconfigure(1, weight=2, uniform="guide")
+        body.columnconfigure((0, 1), weight=1, uniform="guide")
         body.rowconfigure(0, weight=1)
         card = Card(body, pad=10)
         card.grid(row=0, column=0, sticky="nsew", padx=(0, px(16)))
@@ -1230,11 +1244,15 @@ class DietApp(tk.Tk):
         text.tag_configure("li", lmargin1=px(2), lmargin2=px(26))
         text.tag_configure("num", foreground=ACCENT, font=UI.font["strong"])
         text.tag_configure("term", foreground=TEXT, font=UI.font["strong"])
+        text.tag_configure("code", font=UI.font["mono"], foreground=TEXT, background=TRACK,
+                           spacing1=0, spacing3=0)
         for i, (kind, content) in enumerate(GUIDE):
             if kind == "h":
                 text.insert("end", content + "\n", ("h", "first") if i == 0 else "h")
             elif kind == "p":
                 text.insert("end", content + "\n")
+            elif kind == "code":                     # each line keeps its newline so the shading is full width
+                text.insert("end", "".join(f"  {line}\n" for line in content.split("\n")), "code")
             elif kind == "ol":
                 for n, item in enumerate(content, start=1):
                     text.insert("end", f"{n}.\t", ("li", "num"))
@@ -1250,30 +1268,32 @@ class DietApp(tk.Tk):
         bar.pack(side="right", fill="y", pady=px(8))
         text.pack(side="left", fill="both", expand=True)
 
-        side = tk.Frame(body, bg=BG)
-        side.grid(row=0, column=1, sticky="nsew")
-        model = Card(side)
-        model.pack(fill="x")
-        model.header("The model at a glance")
-        for heading, lines in (("Cheapest menu", ("minimize    c · x", "subject to  lo ≤ N x ≤ hi",
-                                                  "            0 ≤ x ≤ cap")),
-                               ("Mirror problem", ("maximize    h · y", "subject to  Gᵀ y ≤ c,  y ≥ 0"))):
-            tk.Label(model.body, text=heading.upper(), font=UI.font["label"], fg=MUTED, bg=SURFACE).pack(
-                anchor="w", pady=(px(4), px(6)))
-            block = tk.Frame(model.body, bg=TRACK)
-            block.pack(fill="x", pady=(0, px(12)))
-            tk.Label(block, text="\n".join(lines), font=UI.font["mono"], fg=TEXT, bg=TRACK, justify="left",
-                     anchor="w").pack(fill="x", padx=px(12), pady=px(10))
-        wrapping_label(model.body, "At the answer both problems have the same value: c · x = h · y.",
-                       UI.font["small"], MUTED, SURFACE).pack(fill="x")
-        keys = Card(side)
-        keys.pack(fill="x", pady=(px(16), 0))
-        keys.header("Shortcuts")
-        for key, meaning in (("Ctrl+1 … Ctrl+8", "switch pages"), ("Esc", "clear the food search")):
-            line = tk.Frame(keys.body, bg=SURFACE)
-            line.pack(fill="x", pady=px(3))
-            tk.Label(line, text=key, font=UI.font["mono"], fg=TEXT, bg=TRACK, padx=px(8), pady=px(2)).pack(side="left")
-            tk.Label(line, text=meaning, font=UI.font["body"], fg=TEXT_2, bg=SURFACE).pack(side="left", padx=px(10))
+        picture = Card(body)
+        picture.grid(row=0, column=1, sticky="nsew")
+        picture.header("See it in two dimensions",
+                       "An illustration, not your menu: the same method on a problem with only rice and "
+                       "eggs, small enough to draw.")
+        # Packed before the chart so that on a short window the chart shrinks, not the explanation
+        notes = tk.Frame(picture.body, bg=SURFACE)
+        notes.pack(side="bottom", fill="x", pady=(px(8), 0))
+        for i, line in enumerate((
+                "Each point is a menu (cups of rice, eggs). The shaded region holds every menu with at "
+                "least 1,200 kcal and 48 g protein.",
+                "Corners A, B and C are where two edges meet, so each one solves a 2 × 2 system. The dotted "
+                "cost line first touches the region at B: 4 cups of rice and 4 eggs for ₱80, the cheapest menu.",
+                "Your real menu works the same way, but with 25 foods its region has 25 dimensions, so it "
+                "can't be drawn.")):
+            label = wrapping_label(notes, line, UI.font["small"], TEXT_2, SURFACE)
+            label.pack(fill="x", pady=(0, px(4)))
+            if i == 2:
+                self.extras.append((label, dict(fill="x", pady=(0, px(4)))))
+        source = wrapping_label(notes, "This picture is figure 6 of the report. python diet_optimizer.py "
+                                       "--example shows every row operation.", UI.font["small"], SUBTLE, SURFACE)
+        source.pack(fill="x")
+        self.extras.append((source, dict(fill="x")))
+        _, ax, canvas = self._chart(picture.body)
+        d.draw_two_food(ax)
+        canvas.draw_idle()
 
     # ------------------------------------------------------------------ list rows (drawn on canvases)
     def _draw_menu_row(self, cv, row, x0, y, x1, h):
@@ -1362,7 +1382,7 @@ class DietApp(tk.Tk):
     def show_page(self, name):
         self.page.set(name)
         self.pages[name].tkraise()
-        if name == "Figures":
+        if name == "Variety":
             self.after_idle(self.show_variety)
 
     def _resized(self, e):
@@ -1528,9 +1548,9 @@ class DietApp(tk.Tk):
             limits = self.read_limits()
         except ValueError as err:
             limits, error = None, str(err)
-        self.figure_inputs = (diet, prices, exclude, own_max, limits)    # figure 5 follows these
+        self.figure_inputs = (diet, prices, exclude, own_max, limits)    # the Variety page follows these
         self._variety_stale = True
-        if self.page.get() == "Figures":
+        if self.page.get() == "Variety":
             self.after_idle(self.show_variety)
         if limits is None:
             return self.no_menu(error)
@@ -1692,8 +1712,10 @@ class DietApp(tk.Tk):
         d.draw_solver_progress(self.steps_ax, s, line=ACCENT)          # figure 4 of the report
         self.steps_canvas.draw_idle()
 
+    VARIETIES = range(2, 9)
+
     def show_variety(self):
-        """Figure 5 for the current eating style, prices and foods. Takes about 0.1 s (28 solves)."""
+        """The Variety page for the current eating style, prices and foods. About 0.1 s (28 solves)."""
         if not self._variety_stale or not hasattr(self, "figure_inputs"):
             return
         self._variety_stale = False
@@ -1702,10 +1724,71 @@ class DietApp(tk.Tk):
         if not current and limits is not None:          # custom limits get their own line
             groups["Your limits"] = limits
             current = "Your limits"
-        costs = d.variety_costs(diet, prices, exclude, own_max, groups)
+        costs = d.variety_costs(diet, prices, exclude, own_max, groups, self.VARIETIES)
+        self._variety_costs = costs
         self.variety_ax.clear()
-        d.draw_variety(self.variety_ax, costs, mark=(current, self.variety.get()) if current else None)
+        d.draw_variety(self.variety_ax, costs, self.VARIETIES,
+                       mark=(current, self.variety.get()) if current else None)
         self.variety_canvas.draw_idle()
+
+        if not current:
+            return self.level_list.show([], empty="Fix the limits marked in red to see your costs.")
+        here = costs[current][self.VARIETIES.index(self.variety.get())]
+        self.level_list.show([(v, cost, here, current) for v, cost in zip(self.VARIETIES, costs[current])])
+
+    def _nearest_point(self, event):
+        """The (group, variety) of the chart point closest to the pointer, if it is within reach."""
+        if event.inaxes is not self.variety_ax or event.x is None:
+            return None
+        best = None
+        for name, ys in self._variety_costs.items():
+            for v, y in zip(self.VARIETIES, ys):
+                if not np.isnan(y):
+                    sx, sy = self.variety_ax.transData.transform((v, y))
+                    dist = np.hypot(sx - event.x, sy - event.y)
+                    if best is None or dist < best[0]:
+                        best = (dist, name, v)
+        return best[1:] if best and best[0] < px(16) else None
+
+    def _variety_hover(self, event):
+        self.variety_canvas.get_tk_widget().configure(cursor="hand2" if self._nearest_point(event) else "")
+
+    def _variety_click(self, event):
+        point = self._nearest_point(event)
+        if point:
+            self.use_setting(*point)
+
+    def use_setting(self, group, variety):
+        """Switch to a variety level, and to another group if a different group's line was clicked."""
+        self.variety.set(variety)
+        if group in d.PRESETS and group != self.group.get():
+            self.group.set(group)
+            self.group_chosen()                         # loads that group's limits, then solves
+        else:
+            self.solve()
+
+    def _draw_level_row(self, cv, row, x0, y, x1, h):
+        v, cost, here, _ = row
+        cy, f = y + h / 2, UI.font
+        current = v == self.variety.get()
+        if current:
+            UI.paint.rect(cv, x0 - px(10), y + px(2), x1 + px(10), y + h - px(2), px(8), ACCENT_SOFT)
+        note = "your setting" if current else "more variety" if v < self.variety.get() else "less variety"
+        cv.create_text(x0, cy - px(9), text=f"At most {v} servings", anchor="w", font=f["strong"],
+                       fill=ACCENT_TEXT if current else TEXT)
+        cv.create_text(x0, cy + px(10), text=note, anchor="w", font=f["small"], fill=MUTED)
+        if np.isnan(cost):
+            value, detail, color = "No menu", "limits can't be met", MUTED
+        elif current or np.isnan(here):
+            value, detail, color = f"₱{cost:.2f}", "per day", MUTED
+        else:
+            diff = cost - here
+            value = f"₱{cost:.2f}"
+            detail = "same cost" if abs(diff) < 0.005 else f"{'+' if diff > 0 else '−'}₱{abs(diff):.2f} a day"
+            color = MUTED if abs(diff) < 0.005 else DANGER if diff > 0 else GOOD
+        cv.create_text(x1, cy - px(9), text=value, anchor="e", font=f["strong"],
+                       fill=ACCENT_TEXT if current else TEXT)
+        cv.create_text(x1, cy + px(10), text=detail, anchor="e", font=f["small"], fill=color)
 
 
 def main():
