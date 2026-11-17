@@ -14,7 +14,7 @@ Layout:
 Pages (Ctrl+1 to Ctrl+8 switch between them):
     Menu           the cheapest day of eating, with amounts and costs
     Nutrition      the totals N @ x checked against every limit
-    Foods          turn foods on or off, edit prices and serving limits
+    Foods          turn foods on or off, edit prices and daily maximums
     Limits         edit the minimum and maximum for each nutrient
     Why            which requirements push the cost up, and which foods just missed
     Variety        what a more varied menu costs, for every group (report figure 5)
@@ -65,9 +65,27 @@ DIET_NOTES = {"Anything": "Every food", "No meat or fish": "Keeps eggs and dairy
               "Plant-based": "Plants only"}
 KIND_NAMES = {d.PLANT: "Plant", d.MEAT_FISH: "Meat or fish", d.EGG_DAIRY: "Egg or dairy"}
 GROUPS = list(d.PRESETS)
-DEFAULTS = {f[0]: (f[2], f[3]) for f in d.FOODS}           # food name -> (price, own max)
+FOOD_NAMES = [f[0] for f in d.FOODS]
 KIND_OF = {f[0]: f[4] for f in d.FOODS}
-SERVING_OF = {f[0]: f[1] for f in d.FOODS}
+OWN_MAX = {f[0]: f[3] for f in d.FOODS}
+MARKET_PRICE = {f[0]: f[2] for f in d.FOODS}                 # WFP price per kg (eggs: per egg)
+PRICE_SOURCE = f"{d.MARKET}, {d.month_name(d.MONTH)}"
+
+
+def price_unit(name):
+    """'/kg' or '/egg': the unit a market price is quoted in."""
+    return "/egg" if d.PRICE_UNIT[name] == "piece" else "/kg"
+
+
+def serving_unit(name):
+    """What one serving is, for labels: '100 g', '1 g' or 'egg'."""
+    return "egg" if d.PRICE_UNIT[name] == "piece" else f"{d.SERVING_GRAMS[name]} g"
+
+
+def max_unit(name):
+    """The unit next to a food's daily maximum: '× 100 g', 'g' or 'eggs'."""
+    grams = d.SERVING_GRAMS[name]
+    return "eggs" if d.PRICE_UNIT[name] == "piece" else "g" if grams == 1 else f"× {grams} g"
 
 # (tab name, page title, one-line description)
 PAGES = [
@@ -100,7 +118,7 @@ GUIDE = [
     ("h", "What each page does"),
     ("dl", [("Menu", "foods, amounts and costs. Click a food to edit its price."),
             ("Nutrition", "each total checked against its limits."),
-            ("Foods", "turn foods on or off, search, and edit prices and serving limits."),
+            ("Foods", "turn foods on or off, search, and edit prices and daily maximums."),
             ("Limits", "edit minimums and maximums. Leave a box empty for no limit."),
             ("Why", "which limits push the cost up, and how much cheaper an unused food "
                     "would need to be."),
@@ -110,8 +128,8 @@ GUIDE = [
             ("Guide", "this page. The picture on the right shows the method on a 2-food problem.")]),
     ("h", "How the math works"),
     ("ol", ["Foods are vectors. Each food's nutrition label is a column of the matrix N.",
-            "A menu is a vector x of servings. The day's totals are the product N x, a linear "
-            "combination of the food columns. The cost is the dot product c · x.",
+            "A menu is a vector x of servings (100 g as bought). The day's totals are the product N x, "
+            "a linear combination of the food columns. The cost is the dot product c · x.",
             "Every limit is a linear inequality. Together they form a region of valid menus "
             "with flat sides, and the cheapest menu is at a corner.",
             "The simplex method moves from corner to corner. Each move (a pivot) is one "
@@ -128,7 +146,9 @@ GUIDE = [
              "  subject to  Gᵀ y ≤ c,  y ≥ 0"),
     ("p", "At the answer both problems have the same value: c · x = h · y."),
     ("h", "Words you will see"),
-    ("dl", [("Serving", "one standard portion, such as 1 cup or 1 piece."),
+    ("dl", [("Serving", "100 g of a food as bought, peel and bones included (egg: 1 egg)."),
+            ("Edible share", "the part of a food you can eat. The nutrition counts only that part, so "
+                             "100 g of whole tilapia gives 37 g of fish."),
             ("Requirement price", "how much the daily cost changes if a limit moves by one unit."),
             ("Reduced cost", "how much cheaper an unused food would need to be to join the menu."),
             ("Pivot", "one move from a corner to a cheaper neighboring corner.")]),
@@ -139,12 +159,21 @@ GUIDE = [
             ("Protein, calcium, iron and vitamin C", "at least the Recommended Nutrient Intake."),
             ("Fat and carbohydrates", "the recommended percent of calories, turned into grams."),
             ("Sodium", "at least 500 mg and under 2,000 mg.")]),
-    ("p", "The PDRI says the 28 mg of iron for women and teen girls usually needs iron-rich or "
-          "fortified foods or a supplement. That is why iron drives the cost for those groups."),
+    ("p", "With these market foods, calcium is the limit that drives the cost for every group: few "
+          "of them are rich in it. The Why page shows the price of each limit."),
+    ("h", "Where the prices and nutrition come from"),
+    ("dl", [("Prices", f"World Food Programme retail prices for {PRICE_SOURCE}, per kg as bought "
+                       "(eggs: each). Every food in the program is in that data."),
+            ("Nutrition", "USDA SR28, raw food, per 100 g of the edible part. Edible shares come from "
+                          "SR28, and for whole fish from the FAO (1989).")]),
     ("h", "Good to know"),
-    ("p", "Amounts like 2.3 cups are fine for the model. Round to the nearest half serving "
-          "in practice."),
-    ("p", "Prices and nutrition values are rough estimates for coursework, not medical advice."),
+    ("p", "Amounts are what to buy, weighed as sold. At the market you can ask for “₱20 worth” "
+          "and let the vendor weigh it: the menu works in any amount, not only whole servings."),
+    ("p", "Raw food holds little sodium. With plants only, the 500 mg sodium minimum can't be met "
+          "together with the other limits, so Plant-based shows no menu. Clear the sodium minimum on "
+          "the Limits page to see one."),
+    ("p", "Nutrition is for raw food. Cooking loses some vitamin C, and cooking fuel and oil are "
+          "not counted. This is for coursework, not medical advice."),
     ("h", "Shortcuts"),
     ("dl", [("Ctrl+1 to Ctrl+8", "switch pages, in the order of the tabs."),
             ("Esc", "clear the food search.")]),
@@ -691,9 +720,9 @@ class DietApp(tk.Tk):
         self.group = tk.StringVar(value="Adult woman")
         self.diet = tk.StringVar(value="Anything")
         self.variety = tk.IntVar(value=4)
-        self.on = {name: tk.BooleanVar(value=True) for name in DEFAULTS}
-        self.price = {name: tk.StringVar(value=f"{p:g}") for name, (p, _) in DEFAULTS.items()}
-        self.own_max = {name: tk.StringVar(value=f"{m:g}") for name, (_, m) in DEFAULTS.items()}
+        self.on = {name: tk.BooleanVar(value=True) for name in FOOD_NAMES}
+        self.price = {name: tk.StringVar(value=f"{MARKET_PRICE[name]:g}") for name in FOOD_NAMES}
+        self.own_max = {name: tk.StringVar(value=f"{OWN_MAX[name]:g}") for name in FOOD_NAMES}
         self.limit_vars = [(tk.StringVar(), tk.StringVar()) for _ in d.NUTRIENTS]
         self.page = tk.StringVar(value="Menu")
         self.search = tk.StringVar()
@@ -900,11 +929,11 @@ class DietApp(tk.Tk):
         self.variety_info = tk.Label(box, text="", font=UI.font["small"], fg=MUTED, bg=SURFACE,
                                      justify="left", anchor="w", wraplength=px(244))
         self.variety_info.pack(fill="x", pady=(px(8), 0))
-        disclaimer = tk.Label(box, text="Prices and nutrition values are rough estimates for coursework, "
-                                        "not medical advice.", font=UI.font["tiny"], fg=SUBTLE, bg=SURFACE,
-                              justify="left", wraplength=px(244))
-        disclaimer.pack(side="bottom", anchor="w")
-        self.extras.append((disclaimer, dict(side="bottom", anchor="w")))     # hidden on short windows
+        source = tk.Label(box, text=f"Prices: WFP market data, {PRICE_SOURCE}. Nutrition: USDA SR28, raw "
+                                    "food. For coursework, not medical advice.", font=UI.font["tiny"], fg=SUBTLE,
+                          bg=SURFACE, justify="left", wraplength=px(244))
+        source.pack(side="bottom", anchor="w")
+        self.extras.append((source, dict(side="bottom", anchor="w")))     # hidden on short windows
 
     def _group_note(self):
         group = self.group.get()
@@ -920,7 +949,9 @@ class DietApp(tk.Tk):
             self.custom_row.pack(after=self.group_info, fill="x", pady=(px(8), 0))
 
     def _variety_note(self):
-        self.variety_info.configure(text=f"At most {self.variety.get()} servings of any one food.")
+        v = self.variety.get()
+        self.variety_info.configure(text=f"At most {v} servings of any one food: {v * 100} g as bought, "
+                                         f"or {v} eggs.")
 
     # ------------------------------------------------------------------ top of the main area
     def _topbar(self, main):
@@ -1026,7 +1057,7 @@ class DietApp(tk.Tk):
         note.pack(fill="x", pady=(px(10), 0))
         self.extras.append((note, dict(fill="x", pady=(px(10), 0))))
 
-    FOOD_COLUMNS = ((52, 0), (220, 1), (130, 0), (128, 0), (118, 0), (150, 0))   # (min width, weight)
+    FOOD_COLUMNS = ((52, 0), (170, 1), (104, 0), (138, 0), (118, 0), (112, 0))   # (min width, weight)
 
     def _columns(self, frame):
         for i, (width, weight) in enumerate(self.FOOD_COLUMNS):
@@ -1044,10 +1075,14 @@ class DietApp(tk.Tk):
         Button(tools, "Turn all off", lambda: self.set_all(False), height=34).pack(side="right")
         Button(tools, "Turn all on", lambda: self.set_all(True), height=34).pack(side="right", padx=px(8))
 
+        wrapping_label(card.body, f"Prices: World Food Programme retail prices, {PRICE_SOURCE}, per kg as "
+                                  "bought (eggs: each). Under each food is its name in the WFP data.",
+                       UI.font["small"], MUTED, SURFACE).pack(fill="x", pady=(0, px(14)))
+
         head = tk.Frame(card.body, bg=SURFACE)
         head.pack(fill="x", padx=(0, px(20)))
         self._columns(head)
-        for col, text in enumerate(("Use", "Food", "Type", "Price per serving", "Max servings", "Today")):
+        for col, text in enumerate(("Use", "Food", "Type", "Market price", "Most a day", "Today")):
             tk.Label(head, text=text.upper(), font=UI.font["label"], fg=MUTED, bg=SURFACE).grid(
                 row=0, column=col, sticky="w", pady=(0, px(8)))
         tk.Frame(card.body, bg=BORDER, height=1).pack(fill="x")
@@ -1057,7 +1092,7 @@ class DietApp(tk.Tk):
         inner = scroll.inner
         inner.columnconfigure(0, weight=1)
         self.food_rows = {}
-        for r, name in enumerate(DEFAULTS):
+        for r, name in enumerate(FOOD_NAMES):
             row = tk.Frame(inner, bg=SURFACE)
             row.grid(row=r, column=0, sticky="ew")
             self._columns(row)
@@ -1066,10 +1101,10 @@ class DietApp(tk.Tk):
             words.grid(row=0, column=1, sticky="w")
             label = tk.Label(words, text=name, font=UI.font["strong"], fg=TEXT, bg=SURFACE, cursor="hand2")
             label.pack(anchor="w")
-            serving = tk.Label(words, text=SERVING_OF[name], font=UI.font["small"], fg=MUTED, bg=SURFACE,
-                               cursor="hand2")
-            serving.pack(anchor="w")
-            for w in (words, label, serving):
+            note = tk.Label(words, text=f"WFP: {d.COMMODITY[name]}", font=UI.font["small"], fg=MUTED,
+                            bg=SURFACE, cursor="hand2")
+            note.pack(anchor="w")
+            for w in (words, label, note):
                 w.bind("<Button-1>", lambda e, n=name: self.on[n].set(not self.on[n].get()))
             Badge(row, KIND_NAMES[KIND_OF[name]]).grid(row=0, column=2, sticky="w")
             cell = tk.Frame(row, bg=SURFACE)
@@ -1077,8 +1112,14 @@ class DietApp(tk.Tk):
             tk.Label(cell, text="₱", font=UI.font["body"], fg=MUTED, bg=SURFACE).pack(side="left", padx=(0, px(4)))
             price = ttk.Entry(cell, textvariable=self.price[name], width=7, font=UI.font["body"])
             price.pack(side="left")
-            own = ttk.Entry(row, textvariable=self.own_max[name], width=6, font=UI.font["body"])
-            own.grid(row=0, column=4, sticky="w")
+            tk.Label(cell, text=price_unit(name), font=UI.font["small"], fg=MUTED, bg=SURFACE).pack(
+                side="left", padx=(px(4), 0))
+            most = tk.Frame(row, bg=SURFACE)
+            most.grid(row=0, column=4, sticky="w")
+            own = ttk.Entry(most, textvariable=self.own_max[name], width=5, font=UI.font["body"])
+            own.pack(side="left")
+            tk.Label(most, text=max_unit(name), font=UI.font["small"], fg=MUTED, bg=SURFACE).pack(
+                side="left", padx=(px(4), 0))
             status = Badge(row)
             status.grid(row=0, column=5, sticky="w")
             tk.Frame(row, bg=BORDER, height=1).grid(row=1, column=0, columnspan=6, sticky="ew")
@@ -1148,7 +1189,7 @@ class DietApp(tk.Tk):
         self.why_drivers = self._rows(drivers.body, self._draw_driver_row, px(58), fit=True, min_row=px(46))
         caps = Card(body)
         caps.grid(row=1, column=0, sticky="nsew", padx=(0, px(16)))
-        caps.header("Variety caps that bind", "Foods held back by the most-servings limit.")
+        caps.header("Variety caps that bind", "Foods held back by the variety level or their own daily maximum.")
         self.why_caps = self._rows(caps.body, self._draw_cap_row, px(52), fit=True, min_row=px(44),
                                 on_click=lambda row: self.focus_food(row[1]))
         missed = Card(body)
@@ -1157,7 +1198,7 @@ class DietApp(tk.Tk):
                       "Reduced costs: how much cheaper each food would need to be to join the menu. "
                       "Click one to edit its price.")
         self.why_missed = self._rows(missed.body, self._draw_missed_row, px(58), fit=True, min_row=px(46),
-                                  on_click=lambda row: self.focus_food(row[1]))
+                                  on_click=lambda row: self.focus_food(row[2]))
 
     def _steps_page(self):
         body, _ = self._page("Solver steps")
@@ -1216,7 +1257,7 @@ class DietApp(tk.Tk):
                     "Your setting is circled. Click any point to switch to it.")
         # Packed before the chart so that on a short window the chart shrinks, not this note
         note = wrapping_label(left.body, "This chart is figure 5 of the report. python diet_optimizer.py "
-                                         "--plots saves it with the default prices.",
+                                         "--plots saves it with the unedited market prices.",
                               UI.font["small"], SUBTLE, SURFACE)
         note.pack(side="bottom", fill="x", pady=(px(8), 0))
         self.extras.append((note, dict(side="bottom", fill="x", pady=(px(8), 0))))
@@ -1282,7 +1323,8 @@ class DietApp(tk.Tk):
                 "least 1,200 kcal and 48 g protein.",
                 "Corners A, B and C are where two edges meet, so each one solves a 2 × 2 system. The dotted "
                 "cost line first touches the region at B: 4 cups of rice and 4 eggs for ₱80, the cheapest menu.",
-                "Your real menu works the same way, but with 25 foods its region has 25 dimensions, so it "
+                f"Your real menu works the same way, but with {len(d.FOODS)} foods its region has "
+                f"{len(d.FOODS)} dimensions, so it "
                 "can't be drawn.")):
             label = wrapping_label(notes, line, UI.font["small"], TEXT_2, SURFACE)
             label.pack(fill="x", pady=(0, px(4)))
@@ -1360,15 +1402,18 @@ class DietApp(tk.Tk):
 
     def _draw_cap_row(self, cv, row, x0, y, x1, h):
         value, name, cap = row
-        self._two_lines(cv, x0, x1, y + h / 2, name, f"Held at its cap of {fmt(cap)} servings",
-                        money(value), "saved per extra serving", TEXT_2)
+        self._two_lines(cv, x0, x1, y + h / 2, name, f"Held at its cap of {d.amount(name, cap)}",
+                        money(value), f"saved per extra {serving_unit(name)}", TEXT_2)
 
     def _draw_missed_row(self, cv, row, x0, y, x1, h):
-        reduced, name, price = row
-        cy = y + h / 2
+        _, reduced, name, price = row                  # both in market units: per kg, or per egg
+        cy, unit = y + h / 2, price_unit(name)
+        below = price - reduced
+        detail = (f"Now ₱{price:.2f}{unit} · joins below ₱{below:.2f}{unit}" if below > 0.005 else
+                  f"Now ₱{price:.2f}{unit} · would not join even if free")
         cv.create_text(x1, cy, text="›", anchor="e", font=UI.font["h2"], fill=SUBTLE)
-        self._two_lines(cv, x0, x1 - px(22), cy, name, f"Now ₱{price:.2f} · joins below ₱{price - reduced:.2f}",
-                        f"₱{reduced:.2f}", "price cut needed", TONES["warn"][1])
+        self._two_lines(cv, x0, x1 - px(22), cy, name, detail, f"₱{reduced:.2f}{unit}", "price cut needed",
+                        TONES["warn"][1])
 
     @staticmethod
     def _two_lines(cv, x0, x1, cy, title, detail, value, unit, color):
@@ -1486,10 +1531,10 @@ class DietApp(tk.Tk):
 
     def reset(self):
         self._filling = True
-        for name, (p, m) in DEFAULTS.items():
+        for name in FOOD_NAMES:
             self.on[name].set(True)
-            self.price[name].set(f"{p:g}")
-            self.own_max[name].set(f"{m:g}")
+            self.price[name].set(f"{MARKET_PRICE[name]:g}")
+            self.own_max[name].set(f"{OWN_MAX[name]:g}")
         self._filling = False
         self.diet.set("Anything")
         self.variety.set(4)
@@ -1542,7 +1587,7 @@ class DietApp(tk.Tk):
             row["blocked"] = blocked
             row["label"].configure(fg=SUBTLE if blocked or not self.on[name].get() else TEXT)
         self._check_fields()
-        prices = {n: number(v.get(), DEFAULTS[n][0]) for n, v in self.price.items()}
+        prices = {n: number(self.price[n].get(), p) for n, p in MARKET_PRICE.items()}   # per kg or per egg
         own_max = {n: number(v.get(), 1e9) if v.get().strip() else 1e9 for n, v in self.own_max.items()}
         exclude = {n for n, v in self.on.items() if not v.get()}
         try:
@@ -1555,7 +1600,7 @@ class DietApp(tk.Tk):
             self.after_idle(self.show_variety)
         if limits is None:
             return self.no_menu(error)
-        if all(KIND_OF[n] in excluded_kinds or n in exclude for n in DEFAULTS):
+        if all(KIND_OF[n] in excluded_kinds or n in exclude for n in FOOD_NAMES):
             return self.no_menu("Every food is turned off or left out by the eating style. "
                                 "Turn some on in Foods, or pick another eating style.")
 
@@ -1566,8 +1611,11 @@ class DietApp(tk.Tk):
             best = d.mat_vec(p.N, caps)                 # the most of each nutrient we could ever get
             hints = [f"{name} can't reach {fmt(lo)} {unit}" for (name, unit), (lo, _), b
                      in zip(d.NUTRIENTS, limits, best) if lo is not None and b < lo - 1e-9]
-            return self.no_menu("No menu meets every limit" + (f" ({'; '.join(hints)})" if hints else "")
-                                + ". Try a higher variety level, “Anything”, more foods, or a lower minimum.")
+            why = f" ({'; '.join(hints)})" if hints else ": each limit can be met alone, but not all at once"
+            tip = (" With plants only, the sodium minimum is the usual cause: clear it on the Limits page."
+                   if diet == "plant-based" else "")
+            return self.no_menu("No menu meets every limit" + why + ". Try a higher variety level, "
+                                "“Anything”, more foods, or a lower minimum." + tip)
         self.banner.pack_forget()
         self.show_tiles(p, s, limits)
         self.show_menu(p, s)
@@ -1637,13 +1685,13 @@ class DietApp(tk.Tk):
         used = [j for j in sorted(range(len(costs)), key=lambda j: -costs[j]) if s.x[j] > 1e-6]
         colors = [PALETTE[i % len(PALETTE)] for i in range(len(used))]
         total = s.cost if s.cost > 1e-9 else 1.0
-        rows = [(p.names[j], f"{s.x[j]:.1f} × {p.servings[j]}", costs[j], costs[j] / total, color)
+        rows = [(p.names[j], f"Buy {d.amount(p.names[j], s.x[j])}", costs[j], costs[j] / total, color)
                 for j, color in zip(used, colors)]
         self.menu_list.show(rows, footer=s.cost)
         group = self.group.get() or f"custom limits from {self.last_group}"
         self.menu_text = (f"Cheapest day: ₱{s.cost:.2f} ({group}, {self.diet.get().lower()}, at most "
-                          f"{self.variety.get()} servings of any food)\n" + "\n".join(
-                              f"- {p.names[j]}: {s.x[j]:.1f} × {p.servings[j]} (₱{costs[j]:.2f})" for j in used))
+                          f"{self.variety.get()} servings of any food; {PRICE_SOURCE} prices)\n" + "\n".join(
+                              f"- {p.names[j]}: {d.amount(p.names[j], s.x[j])} (₱{costs[j]:.2f})" for j in used))
 
         ax = self.menu_ax
         ax.clear()
@@ -1676,7 +1724,7 @@ class DietApp(tk.Tk):
     def _food_status(self, name, servings):
         """The badge in the Today column of the Foods page."""
         if servings > 1e-6:
-            return f"{servings:.1f} in menu", "good"
+            return f"{d.amount(name, servings)} in menu", "good"
         if self.food_rows[name].get("blocked"):
             return "Not in this style", "neutral"
         return ("Turned off" if not self.on[name].get() else ""), "neutral"
@@ -1695,8 +1743,10 @@ class DietApp(tk.Tk):
         caps = sorted(((v, lab[1], -h) for v, lab, h in zip(s.y, p.labels, p.h) if v > 1e-7 and lab[0] == "cap"),
                       key=lambda row: -row[0])
         self.why_caps.show(caps, empty="No food is held back by the variety level.")
-        rc = d.reduced_costs(p, s)                            # c_j - (column j of G) . y
-        missed = sorted((rc[j], p.names[j], p.c[j]) for j in range(len(p.names)) if s.x[j] <= 1e-6)[:8]
+        rc = d.reduced_costs(p, s)                            # c_j - (column j of G) . y, per serving
+        per = [d.PER_SERVING[name] for name in p.names]       # back to market units: per kg, or per egg
+        missed = sorted((rc[j] / max(p.c[j], 1e-9), rc[j] / per[j], p.names[j], p.c[j] / per[j])
+                        for j in range(len(p.names)) if s.x[j] <= 1e-6)[:8]    # smallest cut in percent first
         self.why_missed.show(missed, empty="Every available food is on the menu.")
 
     def show_steps(self, p, s):
@@ -1776,7 +1826,7 @@ class DietApp(tk.Tk):
         if current:
             UI.paint.rect(cv, x0 - px(10), y + px(2), x1 + px(10), y + h - px(2), px(8), ACCENT_SOFT)
         note = "your setting" if current else "more variety" if v < self.variety.get() else "less variety"
-        cv.create_text(x0, cy - px(9), text=f"At most {v} servings", anchor="w", font=f["strong"],
+        cv.create_text(x0, cy - px(9), text=f"At most {v} servings ({v * 100} g)", anchor="w", font=f["strong"],
                        fill=ACCENT_TEXT if current else TEXT)
         cv.create_text(x0, cy + px(10), text=note, anchor="w", font=f["small"], fill=MUTED)
         if math.isnan(cost):
