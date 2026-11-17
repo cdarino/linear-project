@@ -9,10 +9,12 @@ This is the final project for Math 2138 (Linear Algebra). The menu is found by a
 ## What you need
 
 - **Python 3.9 or newer, with Tkinter.** Tkinter draws the app window.
-- **NumPy** and **Matplotlib.** Matplotlib also installs Pillow, which the window uses.
+- **Matplotlib.** Draws the charts. It also installs Pillow, which the window uses.
 - **SciPy** (optional). Only needed for the self-test (`--test`).
 
-Developed and tested with Python 3.13, NumPy 2.1 and Matplotlib 3.11 on Windows 10.
+The math itself uses no library. Vectors and matrices are plain Python lists, and every operation on them is written out in `diet_optimizer.py`. (Matplotlib installs NumPy for its own use, but the project's code never calls it.)
+
+Developed and tested with Python 3.13 and Matplotlib 3.11 on Windows 10.
 
 Tkinter comes with the python.org installers for Windows and macOS. On Linux, install it separately:
 
@@ -53,7 +55,7 @@ Your prompt should now start with `(.venv)`. Run the activate command again each
 **3. Install the packages.**
 
 ```bash
-pip install numpy matplotlib
+pip install matplotlib
 pip install scipy          # optional, for --test
 ```
 
@@ -134,7 +136,7 @@ The figures in the repository were made with the defaults. To recreate them exac
 
 | File | What it holds |
 |---|---|
-| `diet_optimizer.py` | The food data, the requirements, the simplex solver, the command line and the figure code |
+| `diet_optimizer.py` | The food data, the requirements, the vector and matrix operations, the simplex solver, the command line and the figure code |
 | `diet_gui.py` | The app window (Tkinter). Every number in it comes from `diet_optimizer.py`. |
 | `figures/` | The six report figures |
 
@@ -144,6 +146,8 @@ The figures in the repository were made with the defaults. To recreate them exac
 2. **Limits are linear inequalities.** Every minimum, maximum and serving cap becomes one row of the system **G x ≥ h** (37 × 25 for an adult woman). Together the rows cut out a region of valid menus with flat sides, and the cheapest menu is at one of its corners.
 3. **The solver moves from corner to corner.** It runs the simplex method on the mirror (dual) problem built from the transpose **Gᵀ**. Each move, called a pivot, is one Gauss-Jordan step: scale the pivot row, then clear its column with row operations.
 4. **One table gives both answers.** The final table holds the cheapest menu and a price for every requirement. For an adult woman, each extra milligram of iron required adds about ₱5.34 to the day.
+
+Every operation above is written out in plain Python near the top of `diet_optimizer.py`: the dot product, the matrix-vector product, the transpose, the row operations, and 2 × 2 determinants with Cramer's rule.
 
 `python diet_optimizer.py --example` shows every step on a 2-food problem small enough to follow by hand. The app's Guide tab explains the same ideas.
 
@@ -155,9 +159,9 @@ The nutrition targets follow the **Philippine Dietary Reference Intakes 2015** (
 
 | Problem | Fix |
 |---|---|
-| `python` is not recognized (Windows) | Use the Python launcher instead: `py diet_gui.py`, `py -m venv .venv`, `py -m pip install numpy matplotlib`. |
+| `python` is not recognized (Windows) | Use the Python launcher instead: `py diet_gui.py`, `py -m venv .venv`, `py -m pip install matplotlib`. |
 | PowerShell says running scripts is disabled | Run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once, then activate again. Or skip activation and run `.venv\Scripts\python diet_gui.py`. |
 | `No module named 'tkinter'` | On Linux, install Tk (see [What you need](#what-you-need)). On Windows, rerun the Python installer, choose **Modify**, and tick **tcl/tk and IDLE**. |
-| `No module named 'numpy'` or `'matplotlib'` | The packages are in a different Python than the one you're running. Activate the virtual environment, or install with `python -m pip install numpy matplotlib`. |
+| `No module named 'matplotlib'` | It's installed in a different Python than the one you're running. Activate the virtual environment, or install with `python -m pip install matplotlib`. |
 | `SciPy is not installed` | Only `--test` needs it: `pip install scipy`. |
 | The window looks slightly different on macOS or Linux | It was designed on Windows with the Segoe UI font. Elsewhere it uses your system font, so spacing can differ a little. |

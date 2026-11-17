@@ -22,10 +22,12 @@ Pages (Ctrl+1 to Ctrl+8 switch between them):
     Guide          how to use the program and how the math works, with the 2-food
                    example drawn in two dimensions (report figure 6)
 
-Needs only Tkinter, NumPy and Matplotlib. Pillow, which Matplotlib already
-installs, draws the smooth rounded corners.
+Needs only Tkinter and Matplotlib. Pillow, which Matplotlib already
+installs, draws the smooth rounded corners. All the math is done in
+diet_optimizer.py with plain Python lists.
 """
 
+import math
 import sys
 import tkinter as tk
 import tkinter.font as tkfont
@@ -35,7 +37,6 @@ import matplotlib
 matplotlib.use("TkAgg")
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg  # noqa: E402
 from matplotlib.figure import Figure  # noqa: E402
-import numpy as np  # noqa: E402
 from PIL import Image, ImageColor, ImageDraw, ImageTk  # noqa: E402
 
 import diet_optimizer as d  # noqa: E402
@@ -1561,8 +1562,8 @@ class DietApp(tk.Tk):
         p = d.build_problem("Adult woman", diet, self.variety.get(), prices, exclude, limits, own_max)
         s = d.solve_diet(p)
         if s is None:
-            caps = -p.h[-len(p.names):]
-            best = p.N @ caps                           # the most of each nutrient we could ever get
+            caps = [-v for v in p.h[len(p.h) - len(p.names):]]      # the last rows of h are -cap
+            best = d.mat_vec(p.N, caps)                 # the most of each nutrient we could ever get
             hints = [f"{name} can't reach {fmt(lo)} {unit}" for (name, unit), (lo, _), b
                      in zip(d.NUTRIENTS, limits, best) if lo is not None and b < lo - 1e-9]
             return self.no_menu("No menu meets every limit" + (f" ({'; '.join(hints)})" if hints else "")
@@ -1618,11 +1619,11 @@ class DietApp(tk.Tk):
 
         self.tiles["meal"][0].configure(text=f"₱{s.cost / 3:.2f}", fg=TEXT)
         self.tiles["meal"][1].configure(text="if split into three meals")
-        used = int((s.x > 1e-6).sum())
+        used = sum(x > 1e-6 for x in s.x)
         self.tiles["foods"][0].configure(text=str(used), fg=TEXT)
         self.tiles["foods"][1].configure(text=f"out of {len(p.names)} available")
 
-        totals = p.N @ s.x
+        totals = d.mat_vec(p.N, s.x)                         # N x: the day's nutrient totals
         limited = [(t, lo, hi) for t, (lo, hi) in zip(totals, limits) if lo is not None or hi is not None]
         met = sum((lo is None or t >= lo - 1e-6) and (hi is None or t <= hi + 1e-6) for t, lo, hi in limited)
         drivers = sum(v > 1e-7 and lab[0] != "cap" for v, lab in zip(s.y, p.labels))
@@ -1632,8 +1633,8 @@ class DietApp(tk.Tk):
                                            if drivers else "none is holding the cost up")
 
     def show_menu(self, p, s):
-        costs = s.x * p.c
-        used = [j for j in np.argsort(-costs) if s.x[j] > 1e-6]
+        costs = [x * c for x, c in zip(s.x, p.c)]           # what each food adds to c . x
+        used = [j for j in sorted(range(len(costs)), key=lambda j: -costs[j]) if s.x[j] > 1e-6]
         colors = [PALETTE[i % len(PALETTE)] for i in range(len(used))]
         total = s.cost if s.cost > 1e-9 else 1.0
         rows = [(p.names[j], f"{s.x[j]:.1f} × {p.servings[j]}", costs[j], costs[j] / total, color)
@@ -1657,7 +1658,7 @@ class DietApp(tk.Tk):
         self.menu_canvas.draw_idle()
 
     def show_nutrition(self, p, s, limits):
-        totals = p.N @ s.x                                   # N @ x: the day's nutrient totals
+        totals = d.mat_vec(p.N, s.x)                         # N x: the day's nutrient totals
         priced = {(k, n) for v, (k, n, _) in zip(s.y, p.labels) if v > 1e-7 and k != "cap"}
         rows = []
         for (name, unit), (lo, hi), t in zip(d.NUTRIENTS, limits, totals):
@@ -1699,9 +1700,10 @@ class DietApp(tk.Tk):
         self.why_missed.show(missed, empty="Every available food is on the menu.")
 
     def show_steps(self, p, s):
-        self.step_stats["N"].configure(text=f"{p.N.shape[0]} × {p.N.shape[1]}")
-        self.step_stats["G"].configure(text=f"{p.G.shape[0]} × {p.G.shape[1]}")
-        self.step_stats["GT"].configure(text=f"{p.G.shape[1]} × {p.G.shape[0]}")
+        (n_rows, n_cols), (g_rows, g_cols) = d.shape(p.N), d.shape(p.G)
+        self.step_stats["N"].configure(text=f"{n_rows} × {n_cols}")
+        self.step_stats["G"].configure(text=f"{g_rows} × {g_cols}")
+        self.step_stats["GT"].configure(text=f"{g_cols} × {g_rows}")
         self.step_stats["pivots"].configure(text=str(len(s.steps)))
         self.steps_tree.delete(*self.steps_tree.get_children())
         for k, st in enumerate(s.steps, 1):
@@ -1715,7 +1717,7 @@ class DietApp(tk.Tk):
     VARIETIES = range(2, 9)
 
     def show_variety(self):
-        """The Variety page for the current eating style, prices and foods. About 0.1 s (28 solves)."""
+        """The Variety page for the current eating style, prices and foods. About 0.2 s (28 solves)."""
         if not self._variety_stale or not hasattr(self, "figure_inputs"):
             return
         self._variety_stale = False
@@ -1743,9 +1745,9 @@ class DietApp(tk.Tk):
         best = None
         for name, ys in self._variety_costs.items():
             for v, y in zip(self.VARIETIES, ys):
-                if not np.isnan(y):
+                if not math.isnan(y):
                     sx, sy = self.variety_ax.transData.transform((v, y))
-                    dist = np.hypot(sx - event.x, sy - event.y)
+                    dist = math.hypot(sx - event.x, sy - event.y)
                     if best is None or dist < best[0]:
                         best = (dist, name, v)
         return best[1:] if best and best[0] < px(16) else None
@@ -1777,9 +1779,9 @@ class DietApp(tk.Tk):
         cv.create_text(x0, cy - px(9), text=f"At most {v} servings", anchor="w", font=f["strong"],
                        fill=ACCENT_TEXT if current else TEXT)
         cv.create_text(x0, cy + px(10), text=note, anchor="w", font=f["small"], fill=MUTED)
-        if np.isnan(cost):
+        if math.isnan(cost):
             value, detail, color = "No menu", "limits can't be met", MUTED
-        elif current or np.isnan(here):
+        elif current or math.isnan(here):
             value, detail, color = f"₱{cost:.2f}", "per day", MUTED
         else:
             diff = cost - here
