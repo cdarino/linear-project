@@ -1,0 +1,35 @@
+date,admin1,admin2,market,market_id,latitude,longitude,category,commodity,commodity_id,unit,priceflag,pricetype,currency,price,usdprice
+2026-10-15,Region XI,Davao del Sur,Davao City,180,7.18,125.44,cereals and tubers,Maize (yellow),136,KG,actual,Retail,PHP,37.88,0.6
+2026-10-15,Region XI,Davao del Sur,Davao City,180,7.18,125.44,cereals and tubers,Potatoes (Irish),148,KG,actual,Retail,PHP,184.17,2.92
+2026-10-15,Region XI,Davao del Sur,Davao City,180,7.18,125.44,cereals and tubers,"Rice (regular, milled)",80,KG,actual,Retail,PHP,58.06,0.92
+2026-10-15,Region XI,Davao del Sur,Davao City,180,7.18,125.44,cereals and tubers,Rice (special),874,KG,actual,Retail,PHP,66.38,1.05
+2026-10-15,Region XI,Davao del Sur,Davao City,180,7.18,125.44,cereals and tubers,Rice (well milled),872,KG,actual,Retail,PHP,61.72,0.98
+2026-10-15,Region XI,Davao del Sur,Davao City,180,7.18,125.44,"meat, fish and eggs",Anchovies,711,KG,actual,Retail,PHP,212.5,3.37
+2026-10-15,Region XI,Davao del Sur,Davao City,180,7.18,125.44,"meat, fish and eggs",Eggs,92,Unit,actual,Retail,PHP,8.99,0.14
+2026-10-15,Region XI,Davao del Sur,Davao City,180,7.18,125.44,"meat, fish and eggs",Fish (milkfish),840,KG,actual,Retail,PHP,242.5,3.85
+2026-10-15,Region XI,Davao del Sur,Davao City,180,7.18,125.44,"meat, fish and eggs",Fish (roundscad),841,KG,actual,Retail,PHP,250.0,3.97
+2026-10-15,Region XI,Davao del Sur,Davao City,180,7.18,125.44,"meat, fish and eggs",Fish (tilapia),405,KG,actual,Retail,PHP,260.0,4.12
+2026-10-15,Region XI,Davao del Sur,Davao City,180,7.18,125.44,"meat, fish and eggs",Meat (beef),141,KG,actual,Retail,PHP,498.33,7.9
+2026-10-15,Region XI,Davao del Sur,Davao City,180,7.18,125.44,"meat, fish and eggs","Meat (beef, chops with bones)",123,KG,actual,Retail,PHP,410.83,6.52
+2026-10-15,Region XI,Davao del Sur,Davao City,180,7.18,125.44,"meat, fish and eggs","Meat (chicken, whole)",125,KG,actual,Retail,PHP,212.83,3.38
+2026-10-15,Region XI,Davao del Sur,Davao City,180,7.18,125.44,"meat, fish and eggs",Meat (pork),140,KG,actual,Retail,PHP,313.33,4.97
+2026-10-15,Region XI,Davao del Sur,Davao City,180,7.18,125.44,"meat, fish and eggs","Meat (pork, with bones)",856,KG,actual,Retail,PHP,260.5,4.13
+2026-10-15,Region XI,Davao del Sur,Davao City,180,7.18,125.44,"meat, fish and eggs",Shrimp (tiger),864,KG,actual,Retail,PHP,751.25,11.92
+2026-10-15,Region XI,Davao del Sur,Davao City,180,7.18,125.44,pulses and nuts,Beans (mung),393,KG,actual,Retail,PHP,141.83,2.25
+2026-10-15,Region XI,Davao del Sur,Davao City,180,7.18,125.44,pulses and nuts,Groundnuts (shelled),119,KG,actual,Retail,PHP,147.8,2.34
+2026-10-15,Region XI,Davao del Sur,Davao City,180,7.18,125.44,vegetables and fruits,Bananas (lakatan),845,KG,actual,Retail,PHP,90.0,1.43
+2026-10-15,Region XI,Davao del Sur,Davao City,180,7.18,125.44,vegetables and fruits,Bananas (latundan),846,KG,actual,Retail,PHP,51.58,0.82
+2026-10-15,Region XI,Davao del Sur,Davao City,180,7.18,125.44,vegetables and fruits,Beans (string),406,KG,actual,Retail,PHP,125.75,1.99
+2026-10-15,Region XI,Davao del Sur,Davao City,180,7.18,125.44,vegetables and fruits,Bitter melon,842,KG,actual,Retail,PHP,124.0,1.97
+2026-10-15,Region XI,Davao del Sur,Davao City,180,7.18,125.44,vegetables and fruits,Bottle gourd,852,KG,actual,Retail,PHP,69.67,1.1
+2026-10-15,Region XI,Davao del Sur,Davao City,180,7.18,125.44,vegetables and fruits,Cabbage,181,KG,actual,Retail,PHP,134.83,2.14
+2026-10-15,Region XI,Davao del Sur,Davao City,180,7.18,125.44,vegetables and fruits,Calamansi,847,KG,actual,Retail,PHP,60.67,0.96
+2026-10-15,Region XI,Davao del Sur,Davao City,180,7.18,125.44,vegetables and fruits,Carrots,166,KG,actual,Retail,PHP,142.33,2.26
+2026-10-15,Region XI,Davao del Sur,Davao City,180,7.18,125.44,vegetables and fruits,Coconut,684,KG,actual,Retail,PHP,38.0,0.6
+2026-10-15,Region XI,Davao del Sur,Davao City,180,7.18,125.44,vegetables and fruits,Eggplants,434,KG,actual,Retail,PHP,104.75,1.66
+2026-10-15,Region XI,Davao del Sur,Davao City,180,7.18,125.44,vegetables and fruits,Garlic,105,KG,actual,Retail,PHP,179.17,2.84
+2026-10-15,Region XI,Davao del Sur,Davao City,180,7.18,125.44,vegetables and fruits,Ginger,712,KG,actual,Retail,PHP,163.83,2.6
+2026-10-15,Region XI,Davao del Sur,Davao City,180,7.18,125.44,vegetables and fruits,Mangoes (carabao),848,KG,actual,Retail,PHP,139.83,2.22
+2026-10-15,Region XI,Davao del Sur,Davao City,180,7.18,125.44,vegetables and fruits,Onions (red),110,KG,actual,Retail,PHP,163.33,2.59
+2026-10-15,Region XI,Davao del Sur,Davao City,180,7.18,125.44,vegetables and fruits,Squashes,340,KG,actual,Retail,PHP,51.17,0.81
+2026-10-15,Region XI,Davao del Sur,Davao City,180,7.18,125.44,vegetables and fruits,Tomatoes,114,KG,actual,Retail,PHP,101.67,1.61

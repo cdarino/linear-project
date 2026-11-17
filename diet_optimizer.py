@@ -48,18 +48,20 @@ USAGE
 -----
     python diet_optimizer.py                       adult woman, any food, variety 4
     python diet_optimizer.py --preset "Adult man" --diet plant-based --variety 3
-    python diet_optimizer.py --price "Egg=10" --exclude "Instant noodles"
+    python diet_optimizer.py --price "Egg=10" --exclude "Beef"
     python diet_optimizer.py --example             2-food walkthrough with every row operation
     python diet_optimizer.py --plots               save the report figures into figures/
     python diet_optimizer.py --test                compare with SciPy on every setting
     python diet_optimizer.py --gui                 open the window (same as python diet_gui.py)
 
-Prices and nutrition values are rough estimates for coursework, not medical advice.
+Prices: WFP retail market prices, Davao City, October 2026 (see DATA below).
+Nutrition: USDA SR28, raw food. For coursework, not medical advice.
 """
 
 from __future__ import annotations
 
 import argparse
+import csv
 import math
 import os
 import sys
@@ -77,35 +79,128 @@ NUTRIENTS = [("Calories", "kcal"), ("Protein", "g"), ("Fat", "g"), ("Carbohydrat
 
 PLANT, MEAT_FISH, EGG_DAIRY = 0, 1, 2
 
-# (name, serving size, price in PHP, own maximum servings, kind, nutrition vector)
-# The nutrition vector follows the order of NUTRIENTS above.
-FOODS = [
-    ("White rice (cooked)", "1 cup", 12, 6, PLANT, [205, 4.3, 0.4, 44.5, 0.6, 16, 0.5, 0, 2]),
-    ("Egg", "1 large", 9, 4, EGG_DAIRY, [72, 6.3, 4.8, 0.4, 0, 28, 0.9, 0, 71]),
-    ("Chicken breast", "100 g cooked", 40, 3, MEAT_FISH, [165, 31, 3.6, 0, 0, 15, 1, 0, 74]),
-    ("Tilapia", "100 g cooked", 30, 3, MEAT_FISH, [128, 26, 2.7, 0, 0, 14, 0.7, 0, 56]),
-    ("Tofu (firm)", "100 g", 15, 4, PLANT, [80, 8, 4.8, 1.9, 0.3, 350, 2.7, 0, 7]),
-    ("Mung beans (cooked)", "1 cup", 15, 3, PLANT, [212, 14.2, 0.8, 38.7, 15.4, 55, 2.8, 1, 4]),
-    ("Sardines in tomato sauce", "1 small can", 25, 2, MEAT_FISH, [150, 17, 8, 1, 0, 300, 2.5, 0, 400]),
-    ("Saba banana", "1 piece", 6, 6, PLANT, [110, 1.1, 0.2, 28, 2.6, 7, 0.4, 9, 1]),
-    ("Kangkong (cooked)", "1 cup", 10, 3, PLANT, [20, 2.6, 0.2, 3.1, 2.1, 77, 1.7, 25, 60]),
-    ("Malunggay leaves", "1 cup", 5, 3, PLANT, [13, 1.9, 0.2, 2, 0.8, 40, 0.8, 11, 3]),
-    ("Carrot", "1 medium", 5, 3, PLANT, [25, 0.6, 0.1, 6, 1.7, 20, 0.2, 3.6, 42]),
-    ("Cabbage (cooked)", "1 cup", 8, 3, PLANT, [33, 1.6, 0.1, 7.5, 2.8, 72, 0.3, 56, 30]),
-    ("Camote (sweet potato)", "1 medium", 10, 4, PLANT, [112, 2, 0.1, 26, 3.9, 39, 0.8, 22, 72]),
-    ("Pandesal", "1 piece", 4, 8, PLANT, [90, 3, 1.5, 17, 0.7, 10, 0.8, 0, 150]),
-    ("Oatmeal (cooked)", "1 cup", 10, 3, PLANT, [150, 5, 2.5, 27, 4, 20, 1.7, 0, 5]),
-    ("Milk", "1 cup", 20, 4, EGG_DAIRY, [150, 8, 8, 12, 0, 300, 0.1, 0, 105]),
-    ("Peanut butter", "1 tbsp", 6, 3, PLANT, [94, 4, 8, 3, 1, 7, 0.3, 0, 70]),
-    ("Cooking oil", "1 tbsp", 3, 3, PLANT, [120, 0, 14, 0, 0, 0, 0, 0, 0]),
-    ("Peanuts (roasted)", "30 g", 10, 3, PLANT, [170, 7, 14, 5, 2.4, 20, 0.7, 0, 5]),
-    ("Tomato", "1 medium", 6, 3, PLANT, [22, 1.1, 0.2, 4.8, 1.5, 12, 0.3, 17, 6]),
-    ("Potato (boiled)", "1 medium", 10, 3, PLANT, [130, 3, 0.2, 30, 2.5, 15, 0.8, 10, 10]),
-    ("Papaya", "1 cup", 12, 3, PLANT, [60, 0.7, 0.4, 15, 2.5, 30, 0.3, 88, 12]),
-    ("Mango", "1 cup", 25, 2, PLANT, [99, 1.4, 0.6, 25, 2.6, 18, 0.3, 60, 2]),
-    ("Ampalaya (cooked)", "1 cup", 10, 3, PLANT, [24, 1, 0.2, 5, 2.5, 20, 0.7, 13, 6]),
-    ("Instant noodles", "1 pack", 10, 3, PLANT, [270, 6, 11, 38, 1, 20, 1.5, 0, 1000]),
+# PRICES are real market prices: the World Food Programme's retail prices for Davao City, October 2026
+# (data/wfp_food_prices_davao_city_2026-10.csv). They are per kilogram as bought (eggs: per piece), the
+# way a market vendor quotes them. Every food below has a price in that file.
+#
+# NUTRITION is for raw food, per 100 g of the edible part, from the USDA National Nutrient Database for
+# Standard Reference, Release 28 (SR28). A kilogram as bought includes peel, bones and seeds, so each food
+# has an edible share: SR28's refuse figure, or for whole fish the edible-flesh yield in FAO Fisheries
+# Technical Paper 309 (1989). Pork and beef count as boneless, since WFP lists the cuts with bones apart.
+#
+# A serving is 100 g as bought (egg: 1 egg). The menu x counts servings, and for one serving
+#   price     = market price per kg  x  kg in a serving
+#   nutrients = nutrients per 100 g of the edible part  x  edible grams in a serving / 100
+PRICE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data",
+                          "wfp_food_prices_davao_city_2026-10.csv")
+
+# (name, WFP commodity, priced per "kg" or "piece", grams as bought in a serving, edible share,
+#  own maximum servings a day, kind, SR28 number, nutrients per 100 g of the edible part)
+#  nutrients:  kcal   protein  fat   carbs  fiber  calcium  iron  vitamin C  sodium
+FOOD_DATA = [
+    ("Rice (regular milled)", "Rice (regular, milled)", "kg", 100, 1.00, 4, PLANT, "20444",
+     [365, 7.13, 0.66, 79.95, 1.3, 28, 0.8, 0, 5]),
+    ("Corn (yellow, dried)", "Maize (yellow)", "kg", 100, 1.00, 4, PLANT, "20014",
+     [365, 9.42, 4.74, 74.26, 7.3, 7, 2.71, 0, 35]),
+    ("Potato", "Potatoes (Irish)", "kg", 100, 0.75, 4, PLANT, "11352",
+     [77, 2.05, 0.09, 17.49, 2.1, 12, 0.81, 19.7, 6]),
+    ("Mung beans (dried)", "Beans (mung)", "kg", 100, 1.00, 2, PLANT, "16080",
+     [347, 23.86, 1.15, 62.62, 16.3, 132, 6.74, 4.8, 15]),
+    ("Peanuts (shelled)", "Groundnuts (shelled)", "kg", 100, 1.00, 1, PLANT, "16087",
+     [567, 25.8, 49.24, 16.13, 8.5, 92, 4.58, 0, 18]),
+    ("Egg", "Eggs", "piece", 57, 0.88, 4, EGG_DAIRY, "01123",          # a large egg: 50 g without its shell
+     [143, 12.56, 9.51, 0.72, 0, 56, 1.75, 0, 142]),
+    ("Chicken (whole)", "Meat (chicken, whole)", "kg", 100, 0.69, 3, MEAT_FISH, "05001",
+     [213, 18.33, 14.83, 0.13, 0, 11, 1.31, 2.6, 70]),
+    ("Pork", "Meat (pork)", "kg", 100, 1.00, 2, MEAT_FISH, "10226",
+     [177, 20.08, 10.14, 0, 0, 16, 0.74, 0.1, 54]),
+    ("Beef", "Meat (beef)", "kg", 100, 1.00, 2, MEAT_FISH, "13795",
+     [214, 20.01, 14.42, 0, 0, 17, 1.69, 0, 52]),
+    ("Milkfish (bangus)", "Fish (milkfish)", "kg", 100, 0.61, 3, MEAT_FISH, "15053",
+     [148, 20.53, 6.73, 0, 0, 51, 0.32, 0, 72]),
+    ("Round scad (galunggong)", "Fish (roundscad)", "kg", 100, 0.52, 3, MEAT_FISH, "15050",   # jack mackerel:
+     [158, 20.07, 7.89, 0, 0, 23, 1.16, 2.0, 86]),                     # same family, SR28 has no scad
+    ("Tilapia", "Fish (tilapia)", "kg", 100, 0.37, 3, MEAT_FISH, "15261",
+     [96, 20.08, 1.7, 0, 0, 10, 0.56, 0, 52]),
+    ("Anchovies (dilis)", "Anchovies", "kg", 100, 0.62, 3, MEAT_FISH, "15001",
+     [131, 20.35, 4.84, 0, 0, 147, 3.25, 0, 104]),
+    ("Ampalaya (bitter gourd)", "Bitter melon", "kg", 100, 0.83, 3, PLANT, "11024",
+     [17, 1.0, 0.17, 3.7, 2.8, 19, 0.43, 84, 5]),
+    ("Cabbage", "Cabbage", "kg", 100, 0.80, 3, PLANT, "11109",
+     [25, 1.28, 0.1, 5.8, 2.5, 40, 0.47, 36.6, 18]),
+    ("Carrots", "Carrots", "kg", 100, 0.89, 3, PLANT, "11124",
+     [41, 0.93, 0.24, 9.58, 2.8, 33, 0.3, 5.9, 69]),
+    ("Eggplant", "Eggplants", "kg", 100, 0.81, 3, PLANT, "11209",
+     [25, 0.98, 0.18, 5.88, 3.0, 9, 0.23, 2.2, 2]),
+    ("Squash (kalabasa)", "Squashes", "kg", 100, 0.70, 3, PLANT, "11422",
+     [26, 1.0, 0.1, 6.5, 0.5, 21, 0.8, 9.0, 1]),
+    ("Upo (bottle gourd)", "Bottle gourd", "kg", 100, 0.70, 3, PLANT, "11218",
+     [14, 0.62, 0.02, 3.39, 0.5, 26, 0.2, 10.1, 2]),
+    ("String beans (sitaw)", "Beans (string)", "kg", 100, 0.95, 3, PLANT, "11199",   # SR28 lists no fiber
+     [47, 2.8, 0.4, 8.35, 0, 50, 0.47, 18.8, 4]),
+    ("Tomato", "Tomatoes", "kg", 100, 0.91, 3, PLANT, "11529",
+     [18, 0.88, 0.2, 3.89, 1.2, 10, 0.27, 13.7, 5]),
+    ("Banana (lakatan)", "Bananas (lakatan)", "kg", 100, 0.64, 4, PLANT, "09040",
+     [89, 1.09, 0.33, 22.84, 2.6, 5, 0.26, 8.7, 1]),
+    ("Banana (latundan)", "Bananas (latundan)", "kg", 100, 0.64, 4, PLANT, "09040",
+     [89, 1.09, 0.33, 22.84, 2.6, 5, 0.26, 8.7, 1]),
+    ("Mango (carabao)", "Mangoes (carabao)", "kg", 100, 0.71, 3, PLANT, "09176",
+     [60, 0.82, 0.38, 14.98, 1.6, 11, 0.16, 36.4, 1]),
 ]
+
+PRICE_UNIT = {f[0]: f[2] for f in FOOD_DATA}                      # "kg" or "piece"
+SERVING_GRAMS = {f[0]: f[3] for f in FOOD_DATA}                   # grams as bought in one serving
+PER_SERVING = {f[0]: f[3] / 1000 if f[2] == "kg" else 1.0 for f in FOOD_DATA}   # market units in a serving
+COMMODITY = {f[0]: f[1] for f in FOOD_DATA}                       # the food's name in the WFP file
+
+
+def read_prices(path=PRICE_FILE):
+    """The WFP file's retail prices as {commodity: price in PHP}, with its market and date."""
+    prices, places = {}, set()
+    with open(path, newline="", encoding="utf-8") as fh:
+        for row in csv.DictReader(fh):
+            if row["pricetype"] == "Retail" and row["currency"] == "PHP":
+                prices[row["commodity"]] = float(row["price"])
+                places.add((row["market"], row["date"]))
+    if len(places) != 1:
+        raise ValueError(f"{path} should hold one market and one month, not {sorted(places)}")
+    (market, date), = places
+    return prices, market, date
+
+
+def month_name(date):
+    """'2026-10-15' -> 'October 2026'."""
+    names = ("January", "February", "March", "April", "May", "June", "July", "August", "September",
+             "October", "November", "December")
+    year, month, _ = date.split("-")
+    return f"{names[int(month) - 1]} {year}"
+
+
+PRICES, MARKET, MONTH = read_prices()
+
+
+def make_foods():
+    """Each food as (name, serving, market price, own maximum servings, kind, nutrients in one serving)."""
+    foods = []
+    for name, commodity, unit, grams, edible, own_max, kind, _, per_100g in FOOD_DATA:
+        if commodity not in PRICES:
+            raise ValueError(f"{PRICE_FILE} has no price for {commodity} ({name})")
+        serving = "1 egg" if unit == "piece" else f"{grams} g"
+        foods.append((name, serving, PRICES[commodity], own_max, kind,
+                      [v * grams * edible / 100 for v in per_100g]))
+    return foods
+
+
+FOODS = make_foods()
+
+
+def amount(name, servings):
+    """What to buy, in words: '358 g', '1.25 kg', '9.5 g' or '4 eggs'."""
+    if PRICE_UNIT[name] == "piece":
+        n = round(servings, 1)
+        return f"{n:g} {name.lower()}{'' if n == 1 else 's'}"
+    grams = servings * SERVING_GRAMS[name]
+    return f"{grams / 1000:.2f} kg" if grams >= 1000 else f"{grams:.0f} g" if grams >= 10 else f"{grams:.1f} g"
 
 # Daily requirements from the Philippine Dietary Reference Intakes 2015 (FNRI-DOST).
 # Adults are the 19-29 group and teens are the 16-18 group.
@@ -195,7 +290,7 @@ def cramer2(M, rhs):
 @dataclass
 class Problem:
     names: list            # foods allowed on this menu
-    servings: list         # serving size of each food
+    servings: list         # serving size of each food (100 g as bought, or 1 egg)
     c: list                # price of one serving of each food
     N: list                # nutrition matrix (9 rows), one column per food
     G: list                # every requirement as a row, so that G @ x >= h
@@ -210,14 +305,14 @@ def build_problem(preset="Adult woman", diet="anything", variety=4, prices=None,
     Purpose: turn the food list and a person's requirements into G @ x >= h.
     Math:    a minimum is  N_i . x >= lo,  a maximum is  -N_i . x >= -hi,
              and the variety cap is  -x_j >= -cap_j  (all the same ">=" form).
-    Optional: `limits` replaces the preset's (min, max) pairs, and `own_max`
-              changes a food's own serving limit (both used by the GUI).
+    Optional: `prices` replaces market prices (PHP per kg, or per egg), `limits` replaces the
+              preset's (min, max) pairs, and `own_max` changes a food's own serving limit.
     """
     prices, own_max = prices or {}, own_max or {}
     limits = limits or PRESETS[preset]
     foods = [f for f in FOODS if f[4] not in DIETS[diet] and f[0] not in exclude]
     names = [f[0] for f in foods]
-    c = [float(prices.get(f[0], f[2])) for f in foods]
+    c = [float(prices.get(f[0], f[2])) * PER_SERVING[f[0]] for f in foods]    # price of one serving
     # 9 x n: row i is nutrient i in every food, so column j is food j's nutrition label
     N = [[float(f[5][i]) for f in foods] for i in range(len(NUTRIENTS))]
     caps = [float(min(variety, own_max.get(f[0], f[3]))) for f in foods]
@@ -381,6 +476,7 @@ def report(p: Problem, s: Solution, preset, diet, variety):
     rule = "-" * 72
     print(rule)
     print(f"DIET OPTIMIZER   {preset}, {diet}, at most {variety} servings of any food")
+    print(f"Prices: WFP, {MARKET}, {month_name(MONTH)}. A serving is 100 g as bought, or 1 egg.")
     print(rule)
     (n_rows, n_cols), (g_rows, g_cols) = shape(p.N), shape(p.G)
     print(f"Nutrition matrix N: {n_rows} nutrients x {n_cols} foods")
@@ -393,12 +489,12 @@ def report(p: Problem, s: Solution, preset, diet, variety):
         print(f"  Pivot {k:2}: {describe(p, st.entering):<38} in   "
               f"guaranteed minimum PHP {st.value:7.2f}")
 
-    print("\nCHEAPEST MENU")
+    print("\nCHEAPEST MENU (what to buy, as bought)")
     order = sorted(range(len(p.names)), key=lambda j: -s.x[j] * p.c[j])     # most expensive first
     for j in order:
         if s.x[j] > 1e-6:
-            print(f"  {s.x[j]:5.2f} x {p.servings[j]:<13} {p.names[j]:<26} PHP {s.x[j] * p.c[j]:7.2f}")
-    print(f"  {'Total cost (c . x)':<48} PHP {dot(p.c, s.x):7.2f}")
+            print(f"  {amount(p.names[j], s.x[j]):>9}  {p.names[j]:<36} PHP {s.x[j] * p.c[j]:7.2f}")
+    print(f"  {'Total cost (c . x)':<47} PHP {dot(p.c, s.x):7.2f}")
 
     print("\nNUTRITION CHECK (N @ x)")
     totals = mat_vec(p.N, s.x)                           # matrix-vector product
@@ -527,7 +623,7 @@ def draw_menu(ax, p: Problem, s: Solution):
     top = max(costs, default=1.0)
     ax.barh([p.names[j] for j in used], costs, color=TEAL, height=0.62)
     for k, j in enumerate(used):
-        ax.text(costs[k] + top * 0.015, k, f"{s.x[j]:.2f} × {p.servings[j]}   ₱{costs[k]:.2f}",
+        ax.text(costs[k] + top * 0.015, k, f"{amount(p.names[j], s.x[j])}   ₱{costs[k]:.2f}",
                 va="center", fontsize=8.5, color=MUTED)
     ax.set_xlim(0, top * 1.4)
     ax.set_xlabel("Cost (₱)")
@@ -643,7 +739,7 @@ def draw_variety(ax, costs, varieties=range(2, 9), mark=None):
             ax.plot(mark[1], y, "o", ms=13, mfc="none", mec=GROUP_COLORS.get(mark[0], INK), mew=2)
     ax.set_xticks(xs)
     ax.set_xlim(xs[0] - 0.3, xs[-1] + 0.3)
-    ax.set_xlabel("Most servings allowed of any one food")
+    ax.set_xlabel("Most servings allowed of any one food (1 serving = 100 g as bought, or 1 egg)")
     ax.set_ylabel("Cheapest day (₱)")
 
 
@@ -714,13 +810,13 @@ def make_plots(p: Problem, s: Solution, folder="figures"):
 # TESTING AGAINST SCIPY
 # ---------------------------------------------------------------------------
 def test():
-    """Compare our simplex with SciPy's solver on every preset, diet and variety setting."""
+    """Compare our simplex with SciPy's solver on every preset, eating style and variety level (84 settings)."""
     try:
         from scipy.optimize import linprog
     except ImportError:
         print("SciPy is not installed. Run: pip install scipy")
         return
-    worst, count = 0.0, 0
+    worst, solved, no_menu = 0.0, 0, 0
     for preset in PRESETS:
         for diet in DIETS:
             for variety in range(2, 9):
@@ -730,13 +826,15 @@ def test():
                               bounds=(0, None), method="highs")       # SciPy wants A_ub x <= b_ub
                 if ours is None or ref.status != 0:
                     assert ours is None and ref.status == 2, (preset, diet, variety)
+                    no_menu += 1                             # both agree that no menu exists
                     continue
                 assert all(gx >= hi - 1e-6 for gx, hi in zip(mat_vec(p.G, ours.x), p.h)), \
                     "menu breaks a requirement"
                 assert abs(dot(p.c, ours.x) - dot(p.h, ours.y)) < 1e-6, "costs of the two problems differ"
                 worst = max(worst, abs(ours.cost - ref.fun))
-                count += 1
-    print(f"Checked {count} settings against SciPy. Largest cost difference: PHP {worst:.2e}")
+                solved += 1
+    print(f"Checked {solved + no_menu} settings against SciPy. Both found no menu in {no_menu}.")
+    print(f"Largest cost difference: PHP {worst:.2e}")
     assert worst < 1e-6
     print("All tests passed.")
 
@@ -752,7 +850,7 @@ def main():
     ap.add_argument("--diet", default="anything", choices=list(DIETS))
     ap.add_argument("--variety", type=int, default=4, help="most servings of any one food (2 to 8)")
     ap.add_argument("--price", action="append", default=[], metavar="FOOD=PRICE",
-                    help='change a price, e.g. --price "Egg=10"')
+                    help='change a price in PHP per kg (eggs: per egg), e.g. --price "Tilapia=240"')
     ap.add_argument("--exclude", action="append", default=[], metavar="FOOD", help="leave a food out")
     ap.add_argument("--example", action="store_true", help="2-food walkthrough with every row operation")
     ap.add_argument("--plots", action="store_true", help="save the report figures into figures/")
@@ -769,6 +867,10 @@ def main():
         return test()
 
     prices = {k.strip(): float(v) for k, v in (item.rsplit("=", 1) for item in args.price)}
+    known = {f[0] for f in FOOD_DATA}
+    for name in [*prices, *args.exclude]:
+        if name not in known:
+            print(f'Note: there is no food called "{name}", so it was ignored. Foods: ' + ", ".join(sorted(known)))
     p = build_problem(args.preset, args.diet, args.variety, prices, set(args.exclude))
     s = solve_diet(p)
     if s is None:
