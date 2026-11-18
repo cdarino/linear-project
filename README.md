@@ -6,74 +6,85 @@ Prices are real retail market prices from the World Food Programme for Davao Cit
 
 This is the final project for Math 2138 (Linear Algebra). The menu is found by a simplex solver written from scratch with Gauss-Jordan row operations (see [How it works](#how-it-works)).
 
-## What you need
+## How to open the app (Windows, in VS Code)
 
-- **Python 3.9 or newer, with Tkinter.** Tkinter draws the app window.
-- **Matplotlib.** Draws the charts. It also installs Pillow, which the window uses.
-- **SciPy** (optional). Only needed for the self-test (`--test`).
+You'll type three short commands into VS Code's **terminal**, a panel at the bottom of VS Code where you give your computer instructions. For each command below: copy it, click inside the terminal, paste with **Ctrl+V**, then press **Enter**.
 
-The math itself uses no library. Vectors and matrices are plain Python lists, and every operation on them is written out in `diet_optimizer.py`. (Matplotlib installs NumPy for its own use, but the project's code never calls it.)
+The first time takes about 10 minutes. After that, opening the app takes one command.
 
-Developed and tested with Python 3.13 and Matplotlib 3.11 on Windows 10.
+### Step 1: Download the project
 
-Tkinter comes with the python.org installers for Windows and macOS. On Linux, install it separately:
+1. Go to this project's page on GitHub.
+2. Click the green **Code** button, then **Download ZIP**.
+3. Open your **Downloads** folder. Right-click **linear-project-main.zip** and choose **Extract All**, then **Extract**.
+
+### Step 2: Open the project folder in VS Code
+
+1. In VS Code, click **File → Open Folder...**
+2. Go to the folder you just extracted and keep double-clicking into folders until you see **diet_gui.py** inside. (There is often a `linear-project-main` folder inside another `linear-project-main` folder; you want the inner one.)
+3. Click **Select Folder**. If VS Code asks whether you trust the authors, click **Yes, I trust the authors**.
+
+**Check:** the **Explorer** panel on the left should list `data`, `figures`, `diet_gui.py`, `diet_optimizer.py` and `README.md`. If it shows only one `linear-project-main` folder, you opened one level too high: do Step 2 again and pick the folder inside it.
+
+### Step 3: Open the terminal and check Python
+
+Click **Terminal → New Terminal** at the top of VS Code. A panel opens at the bottom. Type:
+
+```bat
+py --version
+```
+
+- If you see something like `Python 3.13.0`, you have Python. Go to Step 4.
+- If you see an error saying `py` is not recognized, install Python:
+  1. Go to [python.org/downloads](https://www.python.org/downloads/) and click the yellow **Download Python** button.
+  2. Open the file you downloaded. On the first screen, tick **Add python.exe to PATH** at the bottom, then click **Install Now**.
+  3. When it says the setup was successful, **close VS Code completely and open it again**. VS Code only notices new programs after a restart. Then open a new terminal and type `py --version` again.
+
+### Step 4: Install Matplotlib (first time only)
+
+Matplotlib is an add-on the app uses to draw its charts.
+
+```bat
+py -m pip install matplotlib
+```
+
+Wait until it finishes and you can type again. Near the end you should see `Successfully installed`, or `Requirement already satisfied` if you already had it. Both are fine. A notice that "a new release of pip is available" is not an error; you can ignore it.
+
+### Step 5: Open the app
+
+```bat
+py diet_gui.py
+```
+
+A window called **Diet Optimizer** opens, showing a daily cost of **₱151.38**. Keep VS Code open while you use the app. To close the app, close its window.
+
+**Next time:** open VS Code (it usually reopens the project folder by itself), click **Terminal → New Terminal**, and type `py diet_gui.py`.
+
+### If something goes wrong
+
+| What you see | What to do |
+|---|---|
+| `py` is not recognized | Python isn't installed yet, or VS Code was already open when you installed it. Do Step 3 again, including closing and reopening VS Code. If `python --version` shows a version, type `python` instead of `py` in every command. |
+| Typing `python` opens the Microsoft Store | Close the Store. Type `py` instead, as in the steps above. |
+| `can't open file ... diet_gui.py` | VS Code has the wrong folder open. Do Step 2 again and check that the Explorer panel lists `diet_gui.py` directly. |
+| `No module named 'matplotlib'` or `No module named 'PIL'` | Do Step 4 again. If you start the app with `python` instead of `py`, install with `python -m pip install matplotlib`. |
+| `No module named 'tkinter'` | Open the Python installer again, choose **Modify**, tick **tcl/tk and IDLE**, and finish. |
+| An error that mentions `wfp_food_prices_davao_city_2026-10.csv` | The `data` folder is missing. Extract the whole ZIP (Step 1) instead of opening files from inside it. |
+| You clicked the ▷ (Run) button at the top right and got an error | That button can use a different Python than the terminal. Type `py diet_gui.py` in the terminal instead (Step 5). |
+| The terminal panel is gone | Click **Terminal → New Terminal** again. |
+
+### On a Mac or Linux
+
+Follow the same steps in VS Code, but type `python3` where they say `py`:
 
 ```bash
-sudo apt install python3-tk        # Debian, Ubuntu
-sudo dnf install python3-tkinter   # Fedora
+python3 -m pip install matplotlib
+python3 diet_gui.py
 ```
 
-To check that Tkinter works, run `python -m tkinter`. A small test window should open.
+On Linux, install the window toolkit first: `sudo apt install python3-tk` (Debian or Ubuntu) or `sudo dnf install python3-tkinter` (Fedora). If pip refuses with `externally-managed-environment`, see [If pip refuses to install](#if-pip-refuses-to-install-mac-or-linux) at the end of this page. The window was designed on Windows, so its spacing can look slightly different.
 
-## Set up
-
-**1. Get the code.** Clone the repository, or download it as a ZIP and unzip it.
-
-```bash
-git clone https://github.com/cdarino/linear-project.git
-cd linear-project
-```
-
-**2. Create a virtual environment.** This is optional but recommended, because it keeps the packages separate from the rest of your system.
-
-Windows (PowerShell):
-
-```powershell
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-```
-
-macOS or Linux:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
-Your prompt should now start with `(.venv)`. Run the activate command again each time you open a new terminal.
-
-**3. Install the packages.**
-
-```bash
-pip install matplotlib
-pip install scipy          # optional, for --test
-```
-
-**4. Check that everything works.**
-
-```bash
-python diet_optimizer.py --test
-```
-
-You should see `Checked 84 settings against SciPy` and `All tests passed.` If you skipped SciPy, run `python diet_optimizer.py` instead. The menu it prints should end with a total of `PHP 151.38`.
-
-## Run the app
-
-```bash
-python diet_gui.py
-```
-
-`python diet_optimizer.py --gui` opens the same window.
+## Using the app
 
 Use the **left panel** to choose who the menu is for, the eating style and the variety level (the most servings of any one food). The tiles at the top always show the daily cost, the cost per meal, how many foods are used and how many targets are met. **Copy menu** copies the menu as text, and **Reset all** restores every default.
 
@@ -92,7 +103,9 @@ Press **Ctrl+1** to **Ctrl+8** to switch tabs.
 
 ## Run from the command line
 
-With no options, the program solves for an adult woman eating anything, with at most 4 servings of any one food, at Davao City prices for October 2026. It prints the solver steps, the menu, the nutrition check, what drives the cost and a final check.
+The examples below say `python`. On Windows, type `py` instead; on macOS or Linux, `python3`.
+
+With no options, the program solves for an adult woman eating anything, with at most 4 servings of any one food, at Davao City prices for October 2026. It prints the solver steps, the menu, the nutrition check, what drives the cost and a final check. The menu should end with a total of `PHP 151.38`.
 
 ```bash
 python diet_optimizer.py
@@ -107,8 +120,8 @@ python diet_optimizer.py
 | `--exclude "Beef"` | Leave a food out. Repeat it for more foods. |
 | `--example` | The 2-food walkthrough, showing every row operation |
 | `--plots` | Save the report figures into `figures/` |
-| `--test` | Compare the solver with SciPy on every setting |
-| `--gui` | Open the app window |
+| `--test` | Compare the solver with SciPy on every setting (see [below](#check-the-solver-against-scipy)) |
+| `--gui` | Open the app window, the same as `python diet_gui.py` |
 
 Options can be combined:
 
@@ -117,6 +130,17 @@ python diet_optimizer.py --preset "Teen girl" --diet no-meat-fish --variety 3 --
 ```
 
 Food names must match exactly, including the brackets (for example `"Mung beans (dried)"`). If a name doesn't match, the program says so and lists every food. The full list is also on the app's Foods tab and in `FOOD_DATA` near the top of `diet_optimizer.py`.
+
+## Check the solver against SciPy
+
+This is optional, and the only part of the project that uses SciPy. It solves 84 settings with our solver and with SciPy's, and checks that they agree.
+
+```bash
+python -m pip install scipy
+python diet_optimizer.py --test
+```
+
+You should see `Checked 84 settings against SciPy. Both found no menu in 32.` and `All tests passed.`
 
 ## Report figures
 
@@ -150,7 +174,7 @@ The figures in the repository were made with the defaults. To recreate them exac
 
 Market prices are per kg, but the model counts servings of 100 g. Converting is a change of units: the price of a serving is the price per kg × 0.1. Scaling a food's column of **N** and its price by the same number gives the same menu in different units, so the solver works in servings and the app shows kilograms and pesos.
 
-Every operation above is written out in plain Python near the top of `diet_optimizer.py`: the dot product, the matrix-vector product, the transpose, the row operations, and 2 × 2 determinants with Cramer's rule.
+The math uses no library. Vectors and matrices are plain Python lists, and every operation on them is written out near the top of `diet_optimizer.py`: the dot product, the matrix-vector product, the transpose, the row operations, and 2 × 2 determinants with Cramer's rule. Matplotlib only draws charts. (Installing it also installs NumPy for Matplotlib's own use, but the project's code never calls NumPy.)
 
 `python diet_optimizer.py --example` shows every step on a 2-food problem small enough to follow by hand. The app's Guide tab explains the same ideas.
 
@@ -172,13 +196,17 @@ Every operation above is written out in plain Python near the top of `diet_optim
 
 This is coursework, not medical advice.
 
-## Troubleshooting
+## If pip refuses to install (Mac or Linux)
 
-| Problem | Fix |
-|---|---|
-| `python` is not recognized (Windows) | Use the Python launcher instead: `py diet_gui.py`, `py -m venv .venv`, `py -m pip install matplotlib`. |
-| PowerShell says running scripts is disabled | Run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once, then activate again. Or skip activation and run `.venv\Scripts\python diet_gui.py`. |
-| `No module named 'tkinter'` | On Linux, install Tk (see [What you need](#what-you-need)). On Windows, rerun the Python installer, choose **Modify**, and tick **tcl/tk and IDLE**. |
-| `No module named 'matplotlib'` | It's installed in a different Python than the one you're running. Activate the virtual environment, or install with `python -m pip install matplotlib`. |
-| `SciPy is not installed` | Only `--test` needs it: `pip install scipy`. |
-| The window looks slightly different on macOS or Linux | It was designed on Windows with the Segoe UI font. Elsewhere it uses your system font, so spacing can differ a little. |
+Windows users can skip this. Some Mac and Linux setups won't let pip add packages to the system's Python, and they show `externally-managed-environment`. The fix is to make a private copy of Python inside the project folder (called a virtual environment) and install Matplotlib there:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install matplotlib
+python diet_gui.py
+```
+
+Next time, run `source .venv/bin/activate` from the project folder before `python diet_gui.py`.
+
+Developed and tested with Python 3.13 and Matplotlib 3.11 on Windows 10.
