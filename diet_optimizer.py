@@ -256,6 +256,14 @@ def transpose(A):
     return [list(column) for column in zip(*A)]
 
 
+def scale(v, k):
+    """
+    Purpose: multiply a vector by a number (scalar multiplication).
+    Math:    k v = (k v1, k v2, ..., k vn).
+    """
+    return [k * a for a in v]
+
+
 def identity(n):
     """The n x n identity matrix I: 1 on the diagonal, 0 everywhere else."""
     return [[1.0 if i == j else 0.0 for j in range(n)] for i in range(n)]
@@ -328,6 +336,88 @@ def build_problem(preset="Adult woman", diet="anything", variety=4, prices=None,
     h = h + [-cap for cap in caps]
     labels += [("cap", name, "serving") for name in names]
     return Problem(names, [f[1] for f in foods], c, N, G, h, labels, list(limits))
+
+
+# ---------------------------------------------------------------------------
+# PLANNING SOME OF THE DAY'S MEALS (used by the window)
+# Planning m of the day's M meals is the share f = m / M of the day. Every
+# goal AND every serving cap is multiplied by f, so the system for the plan is
+#     G x >= f h      (the same G, every right-hand side scaled by f).
+# The solver then finds the cheapest menu for these smaller goals. Because
+# N x and c . x are linear, that menu comes out as  x_plan = f x_day, and it
+# costs  f (c . x_day). The solver still finds it on its own; the window
+# never takes that shortcut, and seeing it happen is a check that it is right.
+# ---------------------------------------------------------------------------
+def meal_limits(limits, f):
+    """
+    Purpose: the goals for the share f of the day (for example f = 1/3 for 1 of 3 meals).
+    Math:    each (min, max) pair is multiplied by f: the vector of minimums becomes
+             f lo and the vector of maximums f hi. None (no limit) stays None.
+             Maximums shrink too: one meal gets a third of the day's sodium allowance.
+    """
+    lows = scale([0.0 if lo is None else lo for lo, _ in limits], f)
+    highs = scale([0.0 if hi is None else hi for _, hi in limits], f)
+    return [(None if lo is None else a, None if hi is None else b)
+            for (lo, hi), a, b in zip(limits, lows, highs)]
+
+
+def meal_caps(own_max, f):
+    """
+    Purpose: each food's own daily maximum, for the share f of the day.
+    Math:    the maximums form a vector, and it is scaled by f.
+    The caps must shrink with the goals. With the day's caps, one meal could use the
+    whole day's allowance of the cheapest food (₱40.97 instead of ₱50.46 for 1 of 3
+    meals with the defaults), and three such meals in a row would break the daily cap.
+    """
+    names = [food[0] for food in FOODS]
+    caps = scale([float(own_max.get(food[0], food[3])) for food in FOODS], f)     # f times the cap vector
+    return dict(zip(names, caps))
+
+
+@dataclass
+class BudgetCheck:
+    plan_budget: float     # the budget for one day of the planned meals
+    left: float            # plan_budget - cost (negative means short)
+    meal_budget: float     # plan_budget per planned meal
+    meal_cost: float       # cost per planned meal
+    meals_covered: float   # how many meals' goals the budget pays for
+    day_budget: float      # plan_budget as a whole day (divided by f)
+    fits: bool
+
+
+def budget_check(cost, budget, period_days, planned, meals_a_day):
+    """
+    Purpose: compare a budget with the cheapest cost of the planned goals.
+    Math:    plan budget  = budget / period_days     (period_days is 1, 7 or 30)
+             left         = plan budget - cost
+             per meal     = plan budget / planned,  cost / planned
+             meals covered = plan budget / (cost per meal)
+    The budget is NOT added to G x >= h as a row  -c . x >= -B. The solver already finds
+    the cheapest menu that meets the goals, so that row could never make the menu cheaper;
+    it could only turn "too expensive" into "no menu", which says less. When the budget is
+    short, the mirror value h . y (= cost) is a guaranteed minimum: it proves that no menu
+    meeting these goals costs less, so a smaller budget can't cover them at these settings.
+    Only the cost is ever divided by, never the budget, so a budget of 0 is fine.
+    """
+    plan_budget = budget / period_days
+    meal_cost = cost / planned
+    return BudgetCheck(plan_budget=plan_budget, left=plan_budget - cost, meal_budget=plan_budget / planned,
+                       meal_cost=meal_cost,
+                       meals_covered=plan_budget / meal_cost if meal_cost > EPS else math.inf,
+                       day_budget=plan_budget * meals_a_day / planned,
+                       fits=plan_budget >= cost - EPS)
+
+
+def budget_menu(x, cost, budget):
+    """
+    Purpose: what a short budget buys of the cheapest menu, so the window can show the
+             nutrition it gives.
+    Math:    k = budget / cost, and the menu k x costs k (c . x) = budget. Its totals are
+             N (k x) = k (N x), so every nutrient falls to the same share k of the menu's.
+    Returns (k, k x). A free menu (cost 0) is always affordable, so k = 1 there.
+    """
+    k = min(budget / cost, 1.0) if cost > EPS else 1.0
+    return k, scale(x, k)
 
 
 def reduced_costs(p: Problem, s: "Solution"):
@@ -533,6 +623,68 @@ EXAMPLE = dict(foods=["Rice (cups)", "Eggs"], cost=[10.0, 10.0],
                need=[1200.0, 48.0])
 
 
+def paper_example():
+    """
+    Purpose: the paper's two-food example (Section 4.5, Figure 1, Table 1): the teen boy's
+             real rice and eggs, with only the calorie and protein minimums.
+    Math:    each number is one serving's nutrition and price, as in make_foods():
+             egg kcal = 143 × 57 × 0.88 ÷ 100 = 71.7288, rice price = 58.06 × 0.1 = 5.806.
+    """
+    food = {f[0]: f for f in FOODS}
+    rice, egg = food["Rice (regular milled)"], food["Egg"]
+    need = PRESETS["Teen boy"]
+    return dict(foods=["Rice (servings)", "Eggs"],
+                cost=[rice[2] * PER_SERVING[rice[0]], egg[2] * PER_SERVING[egg[0]]],
+                nutrition=[[rice[5][0], egg[5][0]],       # calories per serving
+                           [rice[5][1], egg[5][1]]],      # protein (g) per serving
+                need=[float(need[0][0]), float(need[1][0])])
+
+
+# The four boundary lines of a two-food example, and the six pairs in the order of Table 1
+TWO_FOOD_LINES = ["calories", "protein", "rice = 0", "eggs = 0"]
+TWO_FOOD_PAIRS = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)]
+
+
+def two_food_vertices(E=EXAMPLE, prices=None):
+    """
+    Purpose: every point where two boundary lines meet, checked and priced (the paper's Table 1).
+    Math:    each pair of lines is a 2 x 2 system M v = rhs. det(M) = ad - bc; when it is not 0,
+             Cramer's rule gives the point. The point is valid when A v >= need and v >= 0,
+             and it costs c . v.
+    `prices` replaces E["cost"]. Returns one dict per pair, in the order of TWO_FOOD_PAIRS.
+    """
+    A, b = E["nutrition"], E["need"]
+    c = prices if prices is not None else E["cost"]
+    rows = [A[0], A[1], [1.0, 0.0], [0.0, 1.0]]          # calories, protein, rice = 0, eggs = 0
+    sides = [b[0], b[1], 0.0, 0.0]
+    out = []
+    for i, j in TWO_FOOD_PAIRS:
+        M, rhs = [rows[i], rows[j]], [sides[i], sides[j]]
+        det = det2(M)                                    # ad - bc
+        point = totals = cost = None
+        valid = False
+        if abs(det) >= EPS:
+            point = cramer2(M, rhs)                      # Cramer's rule
+            totals = mat_vec(A, point)
+            valid = all(t >= need - 1e-9 for t, need in zip(totals, b)) and min(point) >= -1e-9
+            cost = dot(c, point)
+        out.append(dict(lines=(TWO_FOOD_LINES[i], TWO_FOOD_LINES[j]), M=M, rhs=rhs, det=det, point=point,
+                        totals=totals, valid=valid, cost=cost))
+    return out
+
+
+def two_food_corners(E=EXAMPLE):
+    """
+    Purpose: the corners A, B and C of the valid region of a two-food example.
+    Math:    B is where the two need lines cross (Cramer's rule). A sits on the eggs axis and C on
+             the rice axis, each at the larger of the two lines' intercepts need_i / A_ij.
+    """
+    A, b = E["nutrition"], E["need"]
+    return [("A", [0.0, max(b[i] / A[i][1] for i in range(2))]),
+            ("B", cramer2(A, b)),
+            ("C", [max(b[i] / A[i][0] for i in range(2)), 0.0])]
+
+
 def print_tableau(T, header):
     print("           " + "".join(f"{h:>10}" for h in header))
     for i, row in enumerate(T):
@@ -548,21 +700,14 @@ def example():
 
     # Part 1: every corner is the solution of a 2 x 2 linear system
     print("PART 1: corners are where two boundary lines meet (solve a 2 x 2 system)")
-    lines = {"calories": (A[0], b[0]), "protein": (A[1], b[1]),
-             "rice = 0": ([1.0, 0.0], 0.0), "eggs = 0": ([0.0, 1.0], 0.0)}
-    keys = list(lines)
-    for a in range(4):
-        for d in range(a + 1, 4):
-            M = [lines[keys[a]][0], lines[keys[d]][0]]
-            rhs = [lines[keys[a]][1], lines[keys[d]][1]]
-            det = det2(M)                                  # ad - bc
-            if abs(det) < EPS:
-                print(f"  {keys[a]:>8} & {keys[d]:<8} det = 0, the lines never cross")
-                continue
-            pt = cramer2(M, rhs)                           # Cramer's rule
-            valid = all(t >= need - 1e-9 for t, need in zip(mat_vec(A, pt), b)) and min(pt) >= -1e-9
-            print(f"  {keys[a]:>8} & {keys[d]:<8} det = {det:7.1f}  corner ({pt[0]:5.2f}, {pt[1]:5.2f})  "
-                  + (f"valid, costs PHP {dot(c, pt):6.2f}" if valid else "breaks a requirement"))
+    for v in two_food_vertices(E):                         # det2 and cramer2 for each pair of lines
+        first, second = v["lines"]
+        if v["point"] is None:
+            print(f"  {first:>8} & {second:<8} det = 0, the lines never cross")
+            continue
+        pt = v["point"]
+        print(f"  {first:>8} & {second:<8} det = {v['det']:7.1f}  corner ({pt[0]:5.2f}, {pt[1]:5.2f})  "
+              + (f"valid, costs PHP {v['cost']:6.2f}" if v["valid"] else "breaks a requirement"))
 
     # Part 2: simplex on the mirror problem, showing the tableau after every pivot
     print("\nPART 2: simplex on the mirror problem  max 1200a + 48b  s.t.  A^T @ (a, b) <= (10, 10)")
@@ -708,10 +853,11 @@ def variety_costs(diet="anything", prices=None, exclude=(), own_max=None, groups
     return costs
 
 
-def draw_variety(ax, costs, varieties=range(2, 9), mark=None):
+def draw_variety(ax, costs, varieties=range(2, 9), mark=None, budget=None):
     """
     Figure 5: the cheapest day at each variety level, one line per group, named at its right end.
     `mark` = (group name, variety) rings one point. The window uses it for the current setting.
+    `budget` (a daily amount) draws a dashed line. The window uses it; --plots leaves it out.
     """
     style_axes(ax, "y")
     xs = list(varieties)
@@ -737,40 +883,101 @@ def draw_variety(ax, costs, varieties=range(2, 9), mark=None):
         y = costs[mark[0]][xs.index(mark[1])]
         if not math.isnan(y):
             ax.plot(mark[1], y, "o", ms=13, mfc="none", mec=GROUP_COLORS.get(mark[0], INK), mew=2)
+    if budget is not None:
+        lo, hi = ax.get_ylim()
+        pad = (hi - lo) * 0.06 or 1.0
+        ax.set_ylim(min(lo, budget - pad), max(hi, budget + pad))     # keep the line on the chart
+        ax.axhline(budget, color=INK, lw=1.2, ls=(0, (5, 3)))
+        ax.annotate(f"your budget, as a whole day  ₱{budget:.2f}", xy=(xs[0] - 0.3, budget), xytext=(4, 4),
+                    textcoords="offset points", fontsize=8.5, color=INK)
     ax.set_xticks(xs)
     ax.set_xlim(xs[0] - 0.3, xs[-1] + 0.3)
     ax.set_xlabel("Most servings allowed of any one food (1 serving = 100 g as bought, or 1 egg)")
     ax.set_ylabel("Cheapest day (₱)")
 
 
-def draw_two_food(ax):
-    """Figure 6: the 2-food example. The valid menus form a region with flat sides and the cheapest is a corner."""
-    E = EXAMPLE
-    A, b, c = E["nutrition"], E["need"], E["cost"]
+def draw_two_food(ax, E=EXAMPLE, prices=None, cost_level=None, pair=None, point=None, top=None):
+    """
+    Figure 6: the 2-food example. The valid menus form a region with flat sides and the cheapest is a corner.
+    With no extra arguments it draws report figure 6. The window's Guide explorer uses the rest:
+      E           which example (EXAMPLE, or paper_example() for the paper's Figure 1)
+      prices      replaces E["cost"]; the region stays put, only the cost line and the cheapest corner move
+      cost_level  draw the cost line c . x = cost_level instead of the one through the cheapest corner
+      pair        0 to 5: highlight that pair of lines (TWO_FOOD_PAIRS) and mark where they meet
+      point       an (x, y) menu to ring
+      top         the axis range; by default 14 for EXAMPLE, otherwise room for every vertex
+    """
+    A, b = E["nutrition"], E["need"]
+    c = list(prices) if prices is not None else E["cost"]
     style_axes(ax, "both")
-    top = 14.0                                         # the plot shows 0 to 14 on both axes
-    best = cramer2(A, b)                               # B: where the two boundary lines cross
-    corner_a = [0.0, max(b[i] / A[i][1] for i in range(2))]     # A: on the eggs axis
-    corner_c = [max(b[i] / A[i][0] for i in range(2)), 0.0]     # C: on the rice axis
+    vertices = two_food_vertices(E, c) if (pair is not None or top is None and E is not EXAMPLE) else None
+    if top is not None:
+        xtop = ytop = float(top)
+    elif E is EXAMPLE:
+        xtop = ytop = 14.0                             # the plot shows 0 to 14 on both axes
+    else:                                              # room for every vertex; x and y can differ
+        pts = [v["point"] for v in vertices if v["point"] is not None]
+        xtop = float(math.ceil(max(p[0] for p in pts) * 1.12))
+        ytop = float(math.ceil(max(p[1] for p in pts) * 1.12))
+    (_, corner_a), (_, best), (_, corner_c) = two_food_corners(E)    # A on the eggs axis, B, C on the rice axis
     # The valid region lies above both lines: bounded below by A, B, C, open to the upper right
-    region = [corner_a, best, corner_c, [top, 0.0], [top, top], [0.0, top]]
+    region = [corner_a, best, corner_c, [xtop, 0.0], [xtop, ytop], [0.0, ytop]]
     ax.fill([x for x, _ in region], [y for _, y in region], color=ZONE, lw=0)
-    ends = [0.0, top]                                  # a straight line only needs its two ends
+
+    def num(v):                                        # 1200 -> "1200", 71.7288 -> "71.73"
+        return f"{round(v, 2):g}"
+
+    focus = TWO_FOOD_PAIRS[pair] if pair is not None else ()
+    ends = [0.0, xtop]                                 # a straight line only needs its two ends
     for i, (color, style, what) in enumerate(((CORAL, "-", "calories"), (PURPLE, "--", "protein"))):
-        ax.plot(ends, [(b[i] - A[i][0] * x) / A[i][1] for x in ends], color=color, lw=2.2, ls=style,
-                label=f"{A[i][0]:g}x + {A[i][1]:g}y = {b[i]:g} ({what})")
-    ax.plot(ends, [(dot(c, best) - c[0] * x) / c[1] for x in ends], color=MUTED, lw=1.2, ls=":",
-            label=f"{c[0]:g}x + {c[1]:g}y = {dot(c, best):g} (cost line)")
-    corners = (("A", corner_a, (10, 6), "left"), ("B", best, (10, 8), "left"), ("C", corner_c, (0, 12), "center"))
-    for name, pt, offset, align in corners:
-        cheapest = name == "B"
+        faded = dict(lw=3.4 if i in focus else 1.4, alpha=1.0 if i in focus else 0.3) if focus else dict(lw=2.2)
+        ax.plot(ends, [(b[i] - A[i][0] * x) / A[i][1] for x in ends], color=color, ls=style,
+                label=f"{num(A[i][0])}x + {num(A[i][1])}y = {num(b[i])} ({what})", **faded)
+    for i in focus:                                    # rice = 0 and eggs = 0 are the two axes
+        if i == 2:
+            ax.plot([0, 0], [0, ytop], color=INK, lw=3.4, clip_on=False, zorder=2)
+        elif i == 3:
+            ax.plot([0, xtop], [0, 0], color=INK, lw=3.4, clip_on=False, zorder=2)
+
+    corners = [(name, pt, offset, align) for (name, pt), offset, align in
+               zip(two_food_corners(E), ((10, 6), (10, 8), (0, 12)), ("left", "left", "center"))]
+    costs = [dot(c, pt) for _, pt, _, _ in corners]
+    low = min(costs)
+    cheap = [abs(cost - low) < 0.005 for cost in costs]           # two can tie
+    level = cost_level if cost_level is not None else low
+    ax.plot(ends, [(level - c[0] * x) / c[1] for x in ends], color=MUTED, lw=1.2, ls=":",
+            label=f"{num(c[0])}x + {num(c[1])}y = {num(level)} (cost line)")
+    for (name, pt, offset, align), cost, cheapest in zip(corners, costs, cheap):
         ax.plot(*pt, "o", color=TEAL if cheapest else INK, ms=8 if cheapest else 6, clip_on=False, zorder=3)
-        ax.annotate(f"{name}  ₱{dot(c, pt):g}" + ("  cheapest" if cheapest else ""), tuple(pt), xytext=offset,
+        ax.annotate(f"{name}  ₱{num(cost)}" + ("  cheapest" if cheapest else ""), tuple(pt), xytext=offset,
                     textcoords="offset points", ha=align, fontsize=9, color=INK,
                     fontweight="bold" if cheapest else "normal")
-    ax.set_xlim(0, top)
-    ax.set_ylim(0, top)
-    ax.set_xlabel("Cups of rice (x)")
+    if sum(cheap) == 2:                                # a tie: the whole edge between them is cheapest
+        p, q = [pt for (_, pt, _, _), ch in zip(corners, cheap) if ch]
+        ax.annotate("tie: every point on this edge is cheapest", ((p[0] + q[0]) / 2, (p[1] + q[1]) / 2),
+                    xytext=(10, 10), textcoords="offset points", fontsize=8.5, color=TEAL)
+    if cost_level is not None and abs(cost_level - low) < 0.005:  # the cost line touches the region
+        for (_, pt, _, _), ch in zip(corners, cheap):
+            if ch:
+                ax.plot(*pt, "o", ms=17, mfc="none", mec=TEAL, mew=2, clip_on=False, zorder=4)
+
+    if pair is not None and vertices[pair]["point"] is not None:  # where the chosen two lines meet
+        v = vertices[pair]
+        x, y = v["point"]
+        if v["valid"]:
+            ax.plot(x, y, "o", color=INK, ms=10, clip_on=False, zorder=5)
+        else:
+            ax.plot(x, y, "o", mfc="white", mec=CORAL, mew=2, ms=11, clip_on=False, zorder=5)
+            ax.plot(x, y, "x", color=CORAL, mew=2, ms=6, clip_on=False, zorder=6)
+        ax.annotate(f"({x:.2f}, {y:.2f})  ₱{v['cost']:.2f}" + ("" if v["valid"] else "  not valid"), (x, y),
+                    xytext=(12, 16), textcoords="offset points", fontsize=8.5, color=INK if v["valid"] else CORAL,
+                    bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="none", alpha=0.9), zorder=6)
+    if point is not None:
+        ax.plot(*point, "o", ms=9, mfc="none", mec=INK, mew=1.8, clip_on=False, zorder=5)
+    ax.set_xlim(0, xtop)
+    ax.set_ylim(0, ytop)
+    unit = E["foods"][0].split("(")[-1].rstrip(")")    # "Rice (cups)" -> "cups"
+    ax.set_xlabel(f"{unit.capitalize()} of rice (x)")
     ax.set_ylabel("Eggs (y)")
     ax.legend(fontsize=8, loc="upper right", framealpha=0.92, edgecolor="none")
 
