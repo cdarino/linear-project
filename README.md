@@ -124,6 +124,8 @@ The tiles at the top show, on every page:
 | Solver steps | Every pivot of the simplex method, and the guaranteed minimum after each one (report figure 4). |
 | Guide | How to use the program and how the math works, with the 2-food example drawn in two dimensions (report figure 6). |
 
+**The Guide explorer.** The 2-food chart on the Guide page is interactive. **Example** (top right) switches between the round-number example and **Our paper (Figure 1)**, the teen boy's real rice and eggs from Section 4.5. On the **Vertices** tab, the slider (or ‹ ›, or the arrow keys) steps through all six pairs of boundary lines in the order of Table 1. Each step shows the 2 × 2 system, its determinant, Cramer's rule, the check against both needs and the cost, with a badge that says whether the point is a valid vertex, the cheapest one, or outside the region. On **Cost line**, slide the dotted line down (or press **▶ Play**) until it just touches the region at the cheapest corner. On **Prices**, change the rice and egg prices to see the cheapest corner jump while the region stays put. Click anywhere on the chart to check that menu. The last line confirms that the simplex solver finds the same cheapest cost.
+
 Press **Ctrl+1** to **Ctrl+8** to switch tabs, and **Alt+1** to **Alt+3** to set the meals a day.
 
 ## Run from the command line
