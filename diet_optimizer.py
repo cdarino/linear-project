@@ -779,7 +779,7 @@ def draw_nutrition(ax, p: Problem, s: Solution):
     style_axes(ax, "x")
     totals = mat_vec(p.N, s.x)
     right = 100.0
-    for i, ((name, unit), (lo, hi)) in enumerate(zip(NUTRIENTS, p.limits)):
+    for i, ((_, unit), (lo, hi)) in enumerate(zip(NUTRIENTS, p.limits)):
         ref = lo if lo is not None else hi
         if not ref:
             continue

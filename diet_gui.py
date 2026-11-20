@@ -929,7 +929,7 @@ class DietApp(tk.Tk):
         canvas = FigureCanvasTkAgg(fig, master=parent)
         canvas.get_tk_widget().configure(bg=SURFACE, highlightthickness=0, bd=0)
         canvas.get_tk_widget().pack(fill="both", expand=True)
-        return fig, ax, canvas
+        return ax, canvas
 
     def _rows(self, parent, *args, **kw):
         """A RowList packed into `parent`, with a thin scrollbar that shows only when rows overflow."""
@@ -1235,7 +1235,7 @@ class DietApp(tk.Tk):
         right = Card(body)
         right.grid(row=0, column=1, sticky="nsew")
         right.header("Where the money goes", "Each slice is one food's share of the cost.")
-        self.menu_fig, self.menu_ax, self.menu_canvas = self._chart(right.body)
+        self.menu_ax, self.menu_canvas = self._chart(right.body)
         self.donut_card = right
 
         # Shown only when the budget is short, in the chart's place: settings that fit, from
@@ -1489,7 +1489,7 @@ class DietApp(tk.Tk):
         right = Card(row)
         right.grid(row=0, column=1, sticky="nsew")
         right.header("Proven minimum after each pivot", "The mirror value rises until it meets a real menu.")
-        self.steps_fig, self.steps_ax, self.steps_canvas = self._chart(right.body)
+        self.steps_ax, self.steps_canvas = self._chart(right.body)
 
     def _variety_page(self):
         body, _ = self._page("Variety")
@@ -1507,7 +1507,7 @@ class DietApp(tk.Tk):
                               UI.font["small"], SUBTLE, SURFACE)
         note.pack(side="bottom", fill="x", pady=(px(8), 0))
         self.extras.append((note, dict(side="bottom", fill="x", pady=(px(8), 0))))
-        self.variety_fig, self.variety_ax, self.variety_canvas = self._chart(left.body)
+        self.variety_ax, self.variety_canvas = self._chart(left.body)
         self.variety_canvas.mpl_connect("button_press_event", self._variety_click)
         self.variety_canvas.mpl_connect("motion_notify_event", self._variety_hover)
         self._variety_stale, self._variety_costs, self._variety_current = True, {}, None
@@ -1611,7 +1611,7 @@ class DietApp(tk.Tk):
         panels = tk.Frame(inner, bg=SURFACE)
         panels.pack(side="bottom", fill="x", pady=(px(8), 0))
         self.ex_panels = {key: tk.Frame(panels, bg=SURFACE) for key, _ in self.EXPLORER_TABS}
-        self._vertex_panel(self.ex_panels["vertices"], inner)
+        self._vertex_panel(self.ex_panels["vertices"])
         self._cost_panel(self.ex_panels["cost"], inner)
         self._price_panel(self.ex_panels["prices"], inner)
 
@@ -1626,7 +1626,7 @@ class DietApp(tk.Tk):
         self.ex_steps.tag_configure("good", foreground=GOOD)
         self.ex_steps.pack(fill="both", expand=True)
         self.ex_side.pack(side="right", fill="y", padx=(px(12), 0))
-        self.ex_fig, self.ex_ax, self.ex_canvas = self._chart(stage)
+        self.ex_ax, self.ex_canvas = self._chart(stage)
         self.ex_canvas.mpl_connect("button_press_event", self.ex_clicked)
         self.ex_canvas.mpl_connect("motion_notify_event", lambda e: self.ex_canvas.get_tk_widget().configure(
             cursor="hand2" if e.inaxes is self.ex_ax else ""))
@@ -1637,7 +1637,7 @@ class DietApp(tk.Tk):
                           command=command)
         return scale
 
-    def _vertex_panel(self, box, inner):
+    def _vertex_panel(self, box):
         head = tk.Frame(box, bg=SURFACE)
         head.pack(fill="x")
         self._label(head, "Which two lines meet?", "small_strong", TEXT_2).pack(side="left")
@@ -1755,7 +1755,7 @@ class DietApp(tk.Tk):
         self._cost_top = top
 
     def ex_show_tab(self):
-        for key, frame in self.ex_panels.items():
+        for frame in self.ex_panels.values():
             frame.pack_forget()
         self.ex_panels[self.ex_tab.get()].pack(fill="x")
         if self.ex_tab.get() == "vertices":
@@ -2046,7 +2046,7 @@ class DietApp(tk.Tk):
 
     def _draw_driver_row(self, cv, row, x0, y, x1, h):
         value, kind, name, unit = row
-        cy, f = y + h / 2, UI.font
+        cy = y + h / 2
         bound = "minimum" if kind == "min" else "maximum"
         effect = "adds" if kind == "min" else "saves"
         when = "a day" if self.whole_day() else f"for {self.plan_words()}"
@@ -2305,7 +2305,7 @@ class DietApp(tk.Tk):
                                 "“Anything”, more foods, or a lower minimum." + tip)
         self.banner.pack_forget()
         self.result = (p, s, plan_limits, limits)
-        self.budget_options = self._budget_options(p, s, diet, prices, exclude, own_max, plan_limits,
+        self.budget_options = self._budget_options(s, diet, prices, exclude, own_max, plan_limits,
                                                    plan_own_max, limits)
         self.show_plan_labels()
         self.show_tiles(p, s, plan_limits)
@@ -2316,7 +2316,7 @@ class DietApp(tk.Tk):
         self.show_steps(p, s)
         self.show_budget()
 
-    def _budget_options(self, p, s, diet, prices, exclude, own_max, plan_limits, plan_own_max, limits):
+    def _budget_options(self, s, diet, prices, exclude, own_max, plan_limits, plan_own_max, limits):
         """
         The numbers behind "What your budget can do", worked out once per solve and cached, so
         typing a budget only compares numbers. Each one uses math the program already has:
