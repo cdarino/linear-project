@@ -256,6 +256,14 @@ def transpose(A):
     return [list(column) for column in zip(*A)]
 
 
+def scale(v, k):
+    """
+    Purpose: multiply a vector by a number (scalar multiplication).
+    Math:    k v = (k v1, k v2, ..., k vn).
+    """
+    return [k * a for a in v]
+
+
 def identity(n):
     """The n x n identity matrix I: 1 on the diagonal, 0 everywhere else."""
     return [[1.0 if i == j else 0.0 for j in range(n)] for i in range(n)]
@@ -328,6 +336,76 @@ def build_problem(preset="Adult woman", diet="anything", variety=4, prices=None,
     h = h + [-cap for cap in caps]
     labels += [("cap", name, "serving") for name in names]
     return Problem(names, [f[1] for f in foods], c, N, G, h, labels, list(limits))
+
+
+# ---------------------------------------------------------------------------
+# PLANNING SOME OF THE DAY'S MEALS (used by the window)
+# Planning m of the day's M meals is the share f = m / M of the day. Every
+# goal AND every serving cap is multiplied by f, so the system for the plan is
+#     G x >= f h      (the same G, every right-hand side scaled by f).
+# The solver then finds the cheapest menu for these smaller goals. Because
+# N x and c . x are linear, that menu comes out as  x_plan = f x_day, and it
+# costs  f (c . x_day). The solver still finds it on its own; the window
+# never takes that shortcut, and seeing it happen is a check that it is right.
+# ---------------------------------------------------------------------------
+def meal_limits(limits, f):
+    """
+    Purpose: the goals for the share f of the day (for example f = 1/3 for 1 of 3 meals).
+    Math:    each (min, max) pair is multiplied by f: the vector of minimums becomes
+             f lo and the vector of maximums f hi. None (no limit) stays None.
+             Maximums shrink too: one meal gets a third of the day's sodium allowance.
+    """
+    lows = scale([0.0 if lo is None else lo for lo, _ in limits], f)
+    highs = scale([0.0 if hi is None else hi for _, hi in limits], f)
+    return [(None if lo is None else a, None if hi is None else b)
+            for (lo, hi), a, b in zip(limits, lows, highs)]
+
+
+def meal_caps(own_max, f):
+    """
+    Purpose: each food's own daily maximum, for the share f of the day.
+    Math:    the maximums form a vector, and it is scaled by f.
+    The caps must shrink with the goals. With the day's caps, one meal could use the
+    whole day's allowance of the cheapest food (₱40.97 instead of ₱50.46 for 1 of 3
+    meals with the defaults), and three such meals in a row would break the daily cap.
+    """
+    names = [food[0] for food in FOODS]
+    caps = scale([float(own_max.get(food[0], food[3])) for food in FOODS], f)     # f times the cap vector
+    return dict(zip(names, caps))
+
+
+@dataclass
+class BudgetCheck:
+    plan_budget: float     # the budget for one day of the planned meals
+    left: float            # plan_budget - cost (negative means short)
+    meal_budget: float     # plan_budget per planned meal
+    meal_cost: float       # cost per planned meal
+    meals_covered: float   # how many meals' goals the budget pays for
+    day_budget: float      # plan_budget as a whole day (divided by f)
+    fits: bool
+
+
+def budget_check(cost, budget, period_days, planned, meals_a_day):
+    """
+    Purpose: compare a budget with the cheapest cost of the planned goals.
+    Math:    plan budget  = budget / period_days     (period_days is 1, 7 or 30)
+             left         = plan budget - cost
+             per meal     = plan budget / planned,  cost / planned
+             meals covered = plan budget / (cost per meal)
+    The budget is NOT added to G x >= h as a row  -c . x >= -B. The solver already finds
+    the cheapest menu that meets the goals, so that row could never make the menu cheaper;
+    it could only turn "too expensive" into "no menu", which says less. When the budget is
+    short, the mirror value h . y (= cost) is a guaranteed minimum: it proves that no menu
+    meeting these goals costs less, so a smaller budget can't cover them at these settings.
+    Only the cost is ever divided by, never the budget, so a budget of 0 is fine.
+    """
+    plan_budget = budget / period_days
+    meal_cost = cost / planned
+    return BudgetCheck(plan_budget=plan_budget, left=plan_budget - cost, meal_budget=plan_budget / planned,
+                       meal_cost=meal_cost,
+                       meals_covered=plan_budget / meal_cost if meal_cost > EPS else math.inf,
+                       day_budget=plan_budget * meals_a_day / planned,
+                       fits=plan_budget >= cost - EPS)
 
 
 def reduced_costs(p: Problem, s: "Solution"):
@@ -708,10 +786,11 @@ def variety_costs(diet="anything", prices=None, exclude=(), own_max=None, groups
     return costs
 
 
-def draw_variety(ax, costs, varieties=range(2, 9), mark=None):
+def draw_variety(ax, costs, varieties=range(2, 9), mark=None, budget=None):
     """
     Figure 5: the cheapest day at each variety level, one line per group, named at its right end.
     `mark` = (group name, variety) rings one point. The window uses it for the current setting.
+    `budget` (a daily amount) draws a dashed line. The window uses it; --plots leaves it out.
     """
     style_axes(ax, "y")
     xs = list(varieties)
@@ -737,6 +816,13 @@ def draw_variety(ax, costs, varieties=range(2, 9), mark=None):
         y = costs[mark[0]][xs.index(mark[1])]
         if not math.isnan(y):
             ax.plot(mark[1], y, "o", ms=13, mfc="none", mec=GROUP_COLORS.get(mark[0], INK), mew=2)
+    if budget is not None:
+        lo, hi = ax.get_ylim()
+        pad = (hi - lo) * 0.06 or 1.0
+        ax.set_ylim(min(lo, budget - pad), max(hi, budget + pad))     # keep the line on the chart
+        ax.axhline(budget, color=INK, lw=1.2, ls=(0, (5, 3)))
+        ax.annotate(f"your budget, as a whole day  ₱{budget:.2f}", xy=(xs[0] - 0.3, budget), xytext=(4, 4),
+                    textcoords="offset points", fontsize=8.5, color=INK)
     ax.set_xticks(xs)
     ax.set_xlim(xs[0] - 0.3, xs[-1] + 0.3)
     ax.set_xlabel("Most servings allowed of any one food (1 serving = 100 g as bought, or 1 egg)")

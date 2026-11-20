@@ -7,12 +7,15 @@ diet_optimizer.py. This file only draws the screens.
 Run:   python diet_gui.py          (or: python diet_optimizer.py --gui)
 
 Layout:
-    Left panel     who the menu is for, eating style and variety
+    Left panel     who the menu is for, eating style, variety, and the meals and budget
+                   (Alt+1 to Alt+3 set the meals a day)
     Top bar        page tabs, Reset all and Copy menu
-    Summary tiles  daily cost, cost per meal, foods used and targets met (on every page)
+    Summary tiles  cost of the planned meals, cost per meal, foods used, targets met
+                   and the budget check (on every page)
 
 Pages (Ctrl+1 to Ctrl+8 switch between them):
-    Menu           the cheapest day of eating, with amounts and costs
+    Menu           the cheapest food for the planned meals, with amounts, costs, a shopping
+                   checklist and what the budget can do
     Nutrition      the totals N @ x checked against every limit
     Foods          turn foods on or off, edit prices and daily maximums
     Limits         edit the minimum and maximum for each nutrient
@@ -90,15 +93,17 @@ def max_unit(name):
 # (tab name, page title, one-line description)
 PAGES = [
     ("Menu", "Cheapest menu",
-     "One day of eating for the settings on the left, most expensive food first."),
+     "The meals you're planning, for the settings on the left, most expensive food first."),
     ("Nutrition", "Nutrition check",
-     "The day's totals N x, a linear combination of the food columns, against every limit."),
+     "The totals N x, a linear combination of the food columns, against every goal for the meals "
+     "you're planning."),
     ("Foods", "Foods and prices",
      "Turn foods on or off and set prices to match your market. The menu updates as you type."),
     ("Limits", "Nutrition limits",
      "The daily minimum and maximum for each nutrient. Leave a box empty for no limit."),
     ("Why", "What drives the cost",
-     "Prices from the mirror problem: how the daily cost reacts when a limit or a price moves."),
+     "Prices from the mirror problem (for the meals you're planning): how the cost reacts when a limit "
+     "or a price moves."),
     ("Variety", "What variety costs",
      "Allowing fewer servings of any one food makes the menu more varied, but usually more expensive. "
      "Use this page to choose a variety level."),
@@ -116,9 +121,11 @@ GUIDE = [
             "Open Nutrition to confirm that every target is met.",
             "Press Copy menu (top right) to copy the menu as text."]),
     ("h", "What each page does"),
-    ("dl", [("Menu", "foods, amounts and costs. Click a food to edit its price."),
+    ("dl", [("Menu", "foods, amounts and costs. Pick 1, 3 or 7 days to shop for, tick the circle when "
+                     "you've bought a food, and click a food to edit its price."),
             ("Nutrition", "each total checked against its limits."),
-            ("Foods", "turn foods on or off, search, and edit prices and daily maximums."),
+            ("Foods", "turn foods on or off, search, and edit prices and daily maximums. −10% and +10% "
+                      "change every price at once."),
             ("Limits", "edit minimums and maximums. Leave a box empty for no limit."),
             ("Why", "which limits push the cost up, and how much cheaper an unused food "
                     "would need to be."),
@@ -145,6 +152,18 @@ GUIDE = [
              "  maximize    h · y\n"
              "  subject to  Gᵀ y ≤ c,  y ≥ 0"),
     ("p", "At the answer both problems have the same value: c · x = h · y."),
+    ("h", "Meals and budget"),
+    ("ol", ["Planning m of the day's meals is the share f = m ÷ (meals a day) of the day. Planning 1 of 3 "
+            "meals is f = ⅓. Every goal, minimums and maximums alike, and every serving cap is multiplied "
+            "by f.",
+            "The solver then finds the cheapest food that meets those smaller goals. The Menu, Nutrition, "
+            "Why and Solver steps pages all show the planned meals.",
+            "The answer comes out as f times the whole day's menu, x_plan = f · x_day, costing "
+            "f · (c · x_day), because N x and c · x are linear. The solver still finds it on its own, "
+            "which is a good check that it is right.",
+            "The budget is checked against that cost. It is not added as a limit, so being on budget "
+            "never means missing a goal. If the budget is short, the solver's guaranteed minimum h · y "
+            "proves that nothing cheaper meets every goal."]),
     ("h", "Words you will see"),
     ("dl", [("Serving", "100 g of a food as bought, peel and bones included (egg: 1 egg)."),
             ("Edible share", "the part of a food you can eat. The nutrition counts only that part, so "
@@ -176,8 +195,14 @@ GUIDE = [
           "not counted. This is for coursework, not medical advice."),
     ("h", "Shortcuts"),
     ("dl", [("Ctrl+1 to Ctrl+8", "switch pages, in the order of the tabs."),
+            ("Alt+1, Alt+2, Alt+3", "set the meals a day to 1, 2 or 3."),
             ("Esc", "clear the food search.")]),
 ]
+
+# How the planned share of the day is written in labels
+SHARE_TEXT = {(1, 2): "½", (1, 3): "⅓", (2, 3): "⅔"}
+BUDGET_PERIODS = (("plan", "the meals I'm planning", 1), ("week", "a week", 7), ("month", "a month", 30))
+PERIOD_DAYS = {key: days for key, _, days in BUDGET_PERIODS}
 
 
 # ---------------------------------------------------------------------------
@@ -416,7 +441,7 @@ class Segmented(Shape):
     def __init__(self, parent, options, variable, command=None, height=38, pad=14, stretch=False,
                  track=SUNKEN):
         self.options, self.variable, self.command = list(options), variable, command
-        self.stretch, self.track, self.hot = stretch, track, None
+        self.stretch, self.track, self.hot, self.pad = stretch, track, None, pad
         self.natural = [UI.font["strong"].measure(label) + 2 * pad for _, label in self.options]
         super().__init__(parent, sum(self.natural) + 2 * px(4), px(height))
         self.configure(cursor="hand2", takefocus=1)
@@ -428,6 +453,13 @@ class Segmented(Shape):
         self.bind("<FocusIn>", lambda e: (setattr(self, "focused", True), self.paint()))
         self.bind("<FocusOut>", lambda e: (setattr(self, "focused", False), self.paint()))
         variable.trace_add("write", lambda *_: self.paint())
+
+    def set_options(self, options):
+        """Replace the options (for example when the meals a day change)."""
+        self.options, self.hot = list(options), None
+        self.natural = [UI.font["strong"].measure(label) + 2 * self.pad for _, label in self.options]
+        self.configure(width=sum(self.natural) + 2 * px(4))
+        self.paint()
 
     def _spans(self):
         inset, n = px(4), len(self.options)
@@ -544,9 +576,12 @@ class Card(tk.Frame):
         right.pack(side="right", anchor="n")
         words = tk.Frame(head, bg=self.fill)
         words.pack(side="left", fill="x", expand=True)
-        tk.Label(words, text=title, font=UI.font["h3"], fg=TEXT, bg=self.fill, anchor="w").pack(fill="x")
+        self.title = tk.Label(words, text=title, font=UI.font["h3"], fg=TEXT, bg=self.fill, anchor="w")
+        self.title.pack(fill="x")
+        self.subtitle = None
         if subtitle:
-            wrapping_label(words, subtitle, UI.font["small"], MUTED, self.fill).pack(fill="x")
+            self.subtitle = wrapping_label(words, subtitle, UI.font["small"], MUTED, self.fill)
+            self.subtitle.pack(fill="x")
         return right
 
 
@@ -599,6 +634,7 @@ class RowList(tk.Canvas):
         self.draw_row, self.row_h, self.on_click, self.draw_footer = draw_row, row_height, on_click, draw_footer
         self.fit, self.min_row, self.empty = fit, min_row or row_height, empty
         self.rows, self.footer, self.hover = [], None, None
+        self.footer_rows, self.click_x = 1, 0          # footer height in rows; x of the last click
         self.scroll_canvas = self
         self.bind("<Configure>", lambda e: self.redraw())
         if on_click:
@@ -606,14 +642,15 @@ class RowList(tk.Canvas):
             self.bind("<Leave>", lambda e: self._set_hover(None))
             self.bind("<Button-1>", self._click)
 
-    def show(self, rows, footer=None, empty=None):
-        self.rows, self.footer, self.hover = rows, footer, None
+    def show(self, rows, footer=None, empty=None, footer_rows=1, keep_scroll=False):
+        self.rows, self.footer, self.hover, self.footer_rows = rows, footer, None, footer_rows
         self.empty = empty or self.empty
-        self.yview_moveto(0)
+        if not keep_scroll:
+            self.yview_moveto(0)
         self.redraw()
 
     def _rh(self):
-        n = len(self.rows) + (self.footer is not None)
+        n = len(self.rows) + (self.footer_rows if self.footer is not None else 0)
         if self.fit and n:
             return max(self.min_row, min(self.row_h, self.winfo_height() // n))
         return self.row_h
@@ -629,6 +666,7 @@ class RowList(tk.Canvas):
             self.redraw()
 
     def _click(self, e):
+        self.click_x = self.canvasx(e.x)
         i = self._index(e)
         if i is not None:
             self.on_click(self.rows[i])
@@ -653,8 +691,8 @@ class RowList(tk.Canvas):
             y += rh
         if self.draw_footer and self.footer is not None:
             self.create_line(0, y, w, y, fill=BORDER_STRONG)
-            self.draw_footer(self, self.footer, pad, y, w - pad, rh)
-            y += rh
+            self.draw_footer(self, self.footer, pad, y, w - pad, rh * self.footer_rows)
+            y += rh * self.footer_rows
         self.configure(scrollregion=(0, 0, w, max(y, h)))
 
 
@@ -720,6 +758,15 @@ class DietApp(tk.Tk):
         self.group = tk.StringVar(value="Adult woman")
         self.diet = tk.StringVar(value="Anything")
         self.variety = tk.IntVar(value=4)
+        self.meals = tk.IntVar(value=3)              # meals eaten a day
+        self.planned = tk.IntVar(value=3)            # how many of them are planned and bought for
+        self.budget = tk.StringVar()                 # empty = no budget
+        self.budget_period = tk.StringVar(value="plan")
+        self.shop_days = tk.IntVar(value=1)          # the Menu page's "shop for" days
+        self.bought = set()                          # foods ticked on the shopping checklist
+        self.result = None                           # (problem, solution, planned limits, daily limits)
+        self.budget_options = None                   # cached numbers for "What your budget can do"
+        self._meals_before = 3
         self.on = {name: tk.BooleanVar(value=True) for name in FOOD_NAMES}
         self.price = {name: tk.StringVar(value=f"{MARKET_PRICE[name]:g}") for name in FOOD_NAMES}
         self.own_max = {name: tk.StringVar(value=f"{OWN_MAX[name]:g}") for name in FOOD_NAMES}
@@ -728,6 +775,7 @@ class DietApp(tk.Tk):
         self.search = tk.StringVar()
         self.food_filter = tk.StringVar(value="all")
         self._filling, self._pending, self.menu_text = False, None, ""
+        self._scaling = False                     # True while −10% / +10% rewrite the price boxes
         self.last_group = "Adult woman"           # remembered when limits are customized
         self.prev_cost = None                     # for the "+₱2.10 after your last change" note
         self.in_menu = {}                         # food name -> servings in the current menu
@@ -757,12 +805,20 @@ class DietApp(tk.Tk):
 
         for i, name in enumerate(self.page_names, start=1):
             self.bind(f"<Control-Key-{i}>", lambda e, n=name: self.show_page(n))
+        for m in (1, 2, 3):
+            for mod in ("Alt", "Option"):              # Option is the Alt key on a Mac
+                try:
+                    self.bind(f"<{mod}-Key-{m}>", lambda e, m=m: self.set_meals(m))
+                except tk.TclError:
+                    pass
         for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
             self.bind_all(seq, self._wheel)
         self.bind("<Configure>", self._resized)
 
         self.fill_limits("Adult woman")
-        for var in [*self.price.values(), *self.own_max.values()]:
+        for var in self.price.values():
+            var.trace_add("write", lambda *_: self._price_typed())
+        for var in self.own_max.values():
             var.trace_add("write", lambda *_: self.schedule())
         for var in self.on.values():
             var.trace_add("write", lambda *_: self.schedule(60))
@@ -773,8 +829,11 @@ class DietApp(tk.Tk):
         self.variety.trace_add("write", lambda *_: self._variety_note())
         self.search.trace_add("write", lambda *_: self.filter_foods())
         self.food_filter.trace_add("write", lambda *_: self.filter_foods())
+        self.budget.trace_add("write", lambda *_: self.show_budget())          # never re-solves
+        self.budget_period.trace_add("write", lambda *_: self.show_budget())
         self._group_note()
         self._variety_note()
+        self._meals_note()
         self.solve()
 
     # ------------------------------------------------------------------ look
@@ -884,8 +943,11 @@ class DietApp(tk.Tk):
         side.pack(side="left", fill="y")
         side.pack_propagate(False)
         tk.Frame(self, bg=BORDER, width=1).pack(side="left", fill="y")
-        box = tk.Frame(side, bg=SURFACE)
-        box.pack(fill="both", expand=True, padx=px(22), pady=(px(22), px(18)))
+        # The panel scrolls when it is taller than the window. The scrollbar column (14 px) sits
+        # inside the right padding, so the content keeps its 248 px width.
+        scroll = Scroll(side)
+        scroll.pack(fill="both", expand=True, padx=(px(22), px(8)), pady=(px(22), px(18)))
+        box = scroll.inner
 
         brand = tk.Frame(box, bg=SURFACE)
         brand.pack(fill="x")
@@ -929,6 +991,35 @@ class DietApp(tk.Tk):
         self.variety_info = tk.Label(box, text="", font=UI.font["small"], fg=MUTED, bg=SURFACE,
                                      justify="left", anchor="w", wraplength=px(244))
         self.variety_info.pack(fill="x", pady=(px(8), 0))
+
+        self._section(box, "Meals and budget")
+        self._field_label(box, "Meals a day")
+        Segmented(box, [(m, str(m)) for m in (1, 2, 3)], self.meals, command=self.meals_chosen,
+                  stretch=True, height=34, pad=8, track=TRACK).pack(fill="x")
+        self._field_label(box, "Plan for")
+        self.plan_seg = Segmented(box, self._plan_options(), self.planned, command=self.planned_chosen,
+                                  stretch=True, height=34, pad=8, track=TRACK)
+        self.plan_seg.pack(fill="x")
+        self.meals_info = tk.Label(box, text="", font=UI.font["small"], fg=MUTED, bg=SURFACE,
+                                   justify="left", anchor="w", wraplength=px(244))
+        self.meals_info.pack(fill="x", pady=(px(8), 0))
+        self.extras.append((self.meals_info, dict(fill="x", pady=(px(8), 0), after=self.plan_seg)))
+
+        self._field_label(box, "Budget")
+        cell = tk.Frame(box, bg=SURFACE)
+        cell.pack(fill="x")
+        tk.Label(cell, text="₱", font=UI.font["body"], fg=MUTED, bg=SURFACE).pack(side="left", padx=(0, px(4)))
+        self.budget_entry = ttk.Entry(cell, textvariable=self.budget, width=10, font=UI.font["body"])
+        self.budget_entry.pack(side="left")
+        self._field_label(box, "Budget is for")
+        # Radio rows rather than a segmented track: "the meals I'm planning" is too wide for
+        # three options side by side in this panel.
+        for key, label, _ in BUDGET_PERIODS:
+            Choice(box, label, self.budget_period, key, radio=True).pack(fill="x", pady=(0, px(6)))
+        self.budget_info = tk.Label(box, text="", font=UI.font["small"], fg=MUTED, bg=SURFACE,
+                                    justify="left", anchor="w", wraplength=px(244))
+        self.budget_info.pack(fill="x", pady=(px(2), px(16)))
+
         source = tk.Label(box, text=f"Prices: WFP market data, {PRICE_SOURCE}. Nutrition: USDA SR28, raw "
                                     "food. For coursework, not medical advice.", font=UI.font["tiny"], fg=SUBTLE,
                           bg=SURFACE, justify="left", wraplength=px(244))
@@ -953,6 +1044,56 @@ class DietApp(tk.Tk):
         self.variety_info.configure(text=f"At most {v} servings of any one food: {v * 100} g as bought, "
                                          f"or {v} eggs.")
 
+    def _field_label(self, parent, text):
+        tk.Label(parent, text=text, font=UI.font["small_strong"], fg=TEXT_2, bg=SURFACE).pack(
+            anchor="w", pady=(px(12), px(6)))
+
+    # ------------------------------------------------------------------ meals: words for the plan
+    def share(self):
+        """f = planned meals ÷ meals a day, the share of the day being planned."""
+        return self.planned.get() / self.meals.get()
+
+    def whole_day(self):
+        return self.planned.get() == self.meals.get()
+
+    def plan_words(self):
+        """'1 meal', '2 meals' or 'the whole day'."""
+        k = self.planned.get()
+        return "the whole day" if self.whole_day() else f"{k} meal{'s' if k > 1 else ''}"
+
+    def share_text(self):
+        """'⅓', '⅔' or '½'."""
+        return SHARE_TEXT.get((self.planned.get(), self.meals.get()), f"{self.share():.2f}")
+
+    def _plan_options(self):
+        m = self.meals.get()
+        return [(k, f"{k} meal{'s' if k > 1 else ''}") for k in range(1, m)] + [(m, "Whole day")]
+
+    def _meals_note(self):
+        if self.whole_day():
+            text = "Planning the whole day: the full daily goals."
+        else:
+            text = (f"Planning {self.planned.get()} of {self.meals.get()} meals: every goal is "
+                    f"{self.share_text()} of the day's.")
+        self.meals_info.configure(text=text)
+
+    def set_meals(self, m):
+        """Alt+1, Alt+2, Alt+3."""
+        self.meals.set(m)
+        self.meals_chosen()
+
+    def meals_chosen(self):
+        m, before = self.meals.get(), self._meals_before
+        self._meals_before = m
+        if self.planned.get() == before or self.planned.get() > m:
+            self.planned.set(m)               # "Whole day" stays the whole day; never plan more than m
+        self.plan_seg.set_options(self._plan_options())
+        self.planned_chosen()
+
+    def planned_chosen(self):
+        self._meals_note()
+        self.solve()
+
     # ------------------------------------------------------------------ top of the main area
     def _topbar(self, main):
         bar = tk.Frame(main, bg=BG)
@@ -967,19 +1108,62 @@ class DietApp(tk.Tk):
     def _tiles(self, main):
         row = tk.Frame(main, bg=BG)
         row.pack(fill="x", pady=(px(20), 0))
-        self.tiles = {}
+        self.tile_row, self.tiles, self.tile_labels = row, {}, {}
         for i, (key, label) in enumerate((("cost", "Daily cost"), ("meal", "Per meal"),
-                                          ("foods", "Foods on the menu"), ("targets", "Targets met"))):
+                                          ("foods", "Foods on the menu"), ("targets", "Targets met"),
+                                          ("budget", "Budget"))):
             row.columnconfigure(i, weight=1, uniform="tile")
             card = Card(row, pad=14)
             card.grid(row=0, column=i, sticky="nsew", padx=(0 if i == 0 else px(14), 0))
-            tk.Label(card.body, text=label.upper(), font=UI.font["label"], fg=MUTED, bg=SURFACE).pack(anchor="w")
+            self.tile_labels[key] = tk.Label(card.body, text=label.upper(), font=UI.font["label"], fg=MUTED,
+                                             bg=SURFACE)
+            self.tile_labels[key].pack(anchor="w")
             value = tk.Label(card.body, text="–", font=UI.font["kpi"], fg=TEXT, bg=SURFACE)
             value.pack(anchor="w", pady=(px(2), 0))
-            note = tk.Label(card.body, text="", font=UI.font["small"], fg=MUTED, bg=SURFACE)
+            if key == "budget":                      # a thin meter: cost against the budget
+                self.budget_meter = tk.Canvas(card.body, bg=SURFACE, highlightthickness=0, bd=0, width=1,
+                                              height=px(10))
+                self.budget_meter.pack(fill="x", pady=(px(2), px(2)))
+                self.budget_meter.bind("<Configure>", lambda e: self._draw_meter())
+            note = tk.Label(card.body, text="", font=UI.font["small"], fg=MUTED, bg=SURFACE, justify="left")
             note.pack(anchor="w")
             self.extras.append((note, dict(anchor="w")))
             self.tiles[key] = (value, note)
+        self._meter = None                           # (cost, budget) the meter shows
+        row.bind("<Configure>", lambda e: self._fit_tiles())
+
+    def _fit_tiles(self):
+        """Five tiles share the row: use a smaller value font when the largest value would not fit."""
+        width = self.tile_row.winfo_width()
+        if width < 50:
+            return
+        room = (width - 4 * px(14)) / 5 - 2 * px(14) - px(4)
+        texts = [value.cget("text") for value, _ in self.tiles.values()]
+        font = next((UI.font[k] for k in ("kpi", "h1", "h2")
+                     if max(UI.font[k].measure(t) for t in texts) <= room), UI.font["h3"])
+        for value, note in self.tiles.values():
+            if value.cget("font") != str(font):
+                value.configure(font=font)
+            note.configure(wraplength=max(int(room), 60))
+        for label in self.tile_labels.values():
+            label.configure(wraplength=max(int(room), 60))
+
+    def _draw_meter(self):
+        """Track, a fill for the cost and a tick at the budget, like the range bars on Nutrition."""
+        cv = self.budget_meter
+        cv.delete("all")
+        w, h = cv.winfo_width(), cv.winfo_height()
+        if w < 20 or self._meter is None:
+            return
+        cost, budget = self._meter
+        top = max(cost, budget) * 1.1 or 1.0
+        t, cy = px(6), h / 2
+        UI.paint.rect(cv, 0, cy - t / 2, w, cy + t / 2, t // 2, TRACK)
+        fill_to = w * min(cost / top, 1)
+        if fill_to >= t:
+            UI.paint.rect(cv, 0, cy - t / 2, fill_to, cy + t / 2, t // 2, GOOD if budget >= cost - 1e-9 else CORAL)
+        x = w * min(budget / top, 1)
+        cv.create_line(x, 0, x, h, fill=TEXT_2, width=px(2))
 
     def _banner(self, main):
         fill, fg = TONES["danger"]
@@ -1013,25 +1197,39 @@ class DietApp(tk.Tk):
 
     # ------------------------------------------------------------------ pages
     def _menu_page(self):
-        body, _ = self._page("Menu")
+        body, actions = self._page("Menu")
+        tk.Label(actions, text="Shop for", font=UI.font["small"], fg=MUTED, bg=BG).pack(side="left",
+                                                                                       padx=(0, px(8)))
+        Segmented(actions, ((1, "1 day"), (3, "3 days"), (7, "7 days")), self.shop_days,
+                  command=self.show_shopping, height=34, pad=12).pack(side="left")
         body.columnconfigure(0, weight=3, uniform="menu")
         body.columnconfigure(1, weight=2, uniform="menu")
         body.rowconfigure(0, weight=1)
         left = Card(body)
         left.grid(row=0, column=0, sticky="nsew", padx=(0, px(16)))
-        left.header("Today's foods", "Click a food to change its price.")
+        left.header("Today's foods", "Click a food to change its price. Tick the circle when you've bought it.")
+        self.menu_card = left
         self.menu_list = self._rows(left.body, self._draw_menu_row, px(56), draw_footer=self._draw_menu_total,
-                                 on_click=lambda row: self.focus_food(row[0]), fit=True, min_row=px(44))
+                                    on_click=self._menu_click, fit=True, min_row=px(44))
         right = Card(body)
         right.grid(row=0, column=1, sticky="nsew")
-        right.header("Where the money goes", "Each slice is one food's share of the daily cost.")
+        right.header("Where the money goes", "Each slice is one food's share of the cost.")
         self.menu_fig, self.menu_ax, self.menu_canvas = self._chart(right.body)
+        self.donut_card = right
+
+        # Shown only when the budget is short, in the chart's place: settings that fit, from
+        # numbers already computed
+        self.budget_card = Card(body)
+        self.budget_card.header("What your budget can do", "Settings that fit your budget.")
+        self.budget_list = self._rows(self.budget_card.body, self._draw_option_row, px(54), fit=True,
+                                      min_row=px(44), on_click=self.use_budget_option)
 
     def _nutrition_page(self):
         body, _ = self._page("Nutrition")
         card = Card(body)
         card.pack(fill="both", expand=True)
         right = card.header("Daily totals", "Each dot is the day's total. It must sit inside the green range.")
+        self.nut_card = card
         legend = tk.Canvas(right, bg=SURFACE, highlightthickness=0, height=px(22), width=1)
         legend.pack(pady=(px(6), 0))
         x, cy = 0, px(11)
@@ -1074,6 +1272,12 @@ class DietApp(tk.Tk):
                   self.food_filter, height=34, pad=12, track=TRACK).pack(side="left")
         Button(tools, "Turn all off", lambda: self.set_all(False), height=34).pack(side="right")
         Button(tools, "Turn all on", lambda: self.set_all(True), height=34).pack(side="right", padx=px(8))
+        Button(tools, "+10%", lambda: self.scale_prices(1.1), height=34).pack(side="right", padx=(0, px(16)))
+        Button(tools, "−10%", lambda: self.scale_prices(0.9), height=34).pack(side="right", padx=(0, px(8)))
+        self.scale_note = wrapping_label(card.body, "Every price scaled by the same number: the cost scales "
+                                                    "too, but the menu stays the same.",
+                                         UI.font["small"], ACCENT_TEXT, SURFACE)
+        self._scale_note_after = tools
 
         wrapping_label(card.body, f"Prices: World Food Programme retail prices, {PRICE_SOURCE}, per kg as "
                                   "bought (eggs: each). Under each food is its name in the WFP data.",
@@ -1136,7 +1340,12 @@ class DietApp(tk.Tk):
         body.rowconfigure(0, weight=1)
         card = Card(body)
         card.grid(row=0, column=0, sticky="nsew", padx=(0, px(16)))
-        table = tk.Frame(card.body, bg=SURFACE)
+        self.limits_note = wrapping_label(card.body, "", UI.font["body"], TONES["info"][1], SURFACE)
+        # The table scrolls, so every row stays reachable on a short window
+        scroll = Scroll(card.body)
+        scroll.pack(fill="both", expand=True)
+        self._limits_table = scroll
+        table = tk.Frame(scroll.inner, bg=SURFACE)
         table.pack(fill="x")
         for col, (text, width) in enumerate((("Nutrient", 118), ("Minimum", 128), ("Maximum", 128),
                                              ("Preset", 128), ("", 64))):
@@ -1252,7 +1461,7 @@ class DietApp(tk.Tk):
         body.rowconfigure(0, weight=1)
         left = Card(body)
         left.grid(row=0, column=0, sticky="nsew", padx=(0, px(16)))
-        left.header("Cheapest day at each variety level",
+        left.header("Cheapest day at each variety level (whole day)",
                     "One line per group, using your eating style, prices and foods. "
                     "Your setting is circled. Click any point to switch to it.")
         # Packed before the chart so that on a short window the chart shrinks, not this note
@@ -1264,7 +1473,8 @@ class DietApp(tk.Tk):
         self.variety_fig, self.variety_ax, self.variety_canvas = self._chart(left.body)
         self.variety_canvas.mpl_connect("button_press_event", self._variety_click)
         self.variety_canvas.mpl_connect("motion_notify_event", self._variety_hover)
-        self._variety_stale, self._variety_costs = True, {}
+        self._variety_stale, self._variety_costs, self._variety_current = True, {}, None
+        self._variety_redraw = False                 # the chart needs redrawing (the budget line moved)
 
         right = Card(body)
         right.grid(row=0, column=1, sticky="nsew")
@@ -1340,25 +1550,63 @@ class DietApp(tk.Tk):
 
     # ------------------------------------------------------------------ list rows (drawn on canvases)
     def _draw_menu_row(self, cv, row, x0, y, x1, h):
-        name, amount, cost, share, color = row
+        name, amount, cost, share, color, bought = row
         cy, f = y + h / 2, UI.font
-        UI.paint.circle(cv, x0 + px(6), cy, px(6), color)
-        cv.create_text(x0 + px(24), cy - px(9), text=name, anchor="w", font=f["strong"], fill=TEXT)
-        cv.create_text(x0 + px(24), cy + px(10), text=amount, anchor="w", font=f["small"], fill=MUTED)
-        cv.create_text(x1, cy - px(9), text=f"₱{cost:.2f}", anchor="e", font=f["strong"], fill=TEXT)
-        cv.create_text(x1, cy + px(10), text=f"{share:.0%} of the cost", anchor="e", font=f["small"], fill=MUTED)
+        # The check circle on the left ticks a food off the shopping list
+        if bought:
+            UI.paint.circle(cv, x0 + px(9), cy, px(9), ACCENT)
+            cv.create_text(x0 + px(9), cy, text="✓", font=f["small_strong"], fill="#FFFFFF")
+        else:
+            UI.paint.circle(cv, x0 + px(9), cy, px(9), SURFACE, BORDER_STRONG, width=1.4)
+        UI.paint.circle(cv, x0 + px(32), cy, px(5), BORDER_STRONG if bought else color)
+        ink, sub = (SUBTLE, SUBTLE) if bought else (TEXT, MUTED)
+        cv.create_text(x0 + px(46), cy - px(9), text=name, anchor="w", font=f["strong"], fill=ink)
+        cv.create_text(x0 + px(46), cy + px(10), text="Bought" if bought else amount, anchor="w",
+                       font=f["small"], fill=sub)
+        cv.create_text(x1, cy - px(9), text=f"₱{cost:.2f}", anchor="e", font=f["strong"], fill=ink)
+        cv.create_text(x1, cy + px(10), text=f"{share:.0%} of the cost", anchor="e", font=f["small"], fill=sub)
 
-    def _draw_menu_total(self, cv, total, x0, y, x1, h):
-        cy = y + h / 2
-        cv.create_text(x0, cy, text="Total for the day", anchor="w", font=UI.font["strong"], fill=TEXT)
-        cv.create_text(x1, cy, text=f"₱{total:.2f}", anchor="e", font=UI.font["h3"], fill=ACCENT)
+    def _draw_menu_total(self, cv, footer, x0, y, x1, h):
+        """The total, with the budget line above it and the checklist line below it when they apply."""
+        label, total, budget_line, bought_line = footer
+        f = UI.font
+        lines = ([("budget", budget_line)] if budget_line else []) + [("total", None)] + \
+                ([("bought", bought_line)] if bought_line else [])
+        heights = {"budget": px(22), "total": px(30), "bought": px(22)}
+        cy = y + (h - sum(heights[k] for k, _ in lines)) / 2
+        for kind, content in lines:
+            mid = cy + heights[kind] / 2
+            if kind == "total":
+                cv.create_text(x0, mid, text=label, anchor="w", font=f["strong"], fill=TEXT)
+                cv.create_text(x1, mid, text=f"₱{total:.2f}", anchor="e", font=f["h3"], fill=ACCENT)
+            else:
+                text, color = content
+                cv.create_text(x0, mid, text=text, anchor="w", font=f["small"], fill=color, width=x1 - x0)
+            cy += heights[kind]
+
+    def _menu_click(self, row):
+        """The check circle ticks a food as bought. The rest of the row opens its price."""
+        if self.menu_list.click_x < px(10) + px(24):
+            self.bought.symmetric_difference_update({row[0]})
+            self.show_shopping(keep_scroll=True)
+        else:
+            self.focus_food(row[0])
+
+    def _draw_option_row(self, cv, row, x0, y, x1, h):
+        _, _, title, detail, cost = row
+        cv.create_text(x1, y + h / 2, text="›", anchor="e", font=UI.font["h2"], fill=SUBTLE)
+        self._two_lines(cv, x0, x1 - px(22), y + h / 2, title, detail, f"₱{cost:.2f} ✓", "fits your budget",
+                        GOOD)
 
     def _draw_nut_row(self, cv, row, x0, y, x1, h):
-        name, unit, total, lo, hi, status = row
+        name, unit, total, lo, hi, status, day = row
         cy, f = y + h / 2, UI.font
         cv.create_text(x0, cy - px(9), text=name, anchor="w", font=f["strong"], fill=TEXT)
-        cv.create_text(x0, cy + px(10), text="need " + need_text(lo, hi, unit), anchor="w", font=f["small"],
-                       fill=MUTED)
+        need = cv.create_text(x0, cy + px(10), text="need " + need_text(lo, hi, unit), anchor="w",
+                              font=f["small"], fill=MUTED)
+        if day:                                      # the daily figure the goal was divided from
+            cv.create_text(cv.bbox(need)[2] + px(4), cy + px(10), text=f"(day: {day})", anchor="w",
+                           font=f["small"], fill=SUBTLE)
         value_x = x0 + px(290)
         cv.create_text(value_x, cy, text=f"{fmt(total)} {unit}", anchor="e", font=f["strong"], fill=TEXT)
         text, tone = {"drives": ("Drives the cost", "warn"), "limit": ("At the limit", "info"),
@@ -1397,7 +1645,8 @@ class DietApp(tk.Tk):
         cy, f = y + h / 2, UI.font
         bound = "minimum" if kind == "min" else "maximum"
         effect = "adds" if kind == "min" else "saves"
-        self._two_lines(cv, x0, x1, cy, f"{name} {bound}", f"Raising it by 1 {unit} {effect} {money(value)} a day",
+        when = "a day" if self.whole_day() else f"for {self.plan_words()}"
+        self._two_lines(cv, x0, x1, cy, f"{name} {bound}", f"Raising it by 1 {unit} {effect} {money(value)} {when}",
                         money(value), f"per {unit}", CORAL)
 
     def _draw_cap_row(self, cv, row, x0, y, x1, h):
@@ -1500,6 +1749,21 @@ class DietApp(tk.Tk):
         for var in self.on.values():
             var.set(value)
 
+    def _price_typed(self):
+        if not self._scaling and not self._filling:
+            self.scale_note.pack_forget()           # the note is only true right after −10% / +10%
+        self.schedule()
+
+    def scale_prices(self, k):
+        """−10% and +10%: multiply the price vector c by 0.9 or 1.1 (scalar multiplication)."""
+        names = [n for n in FOOD_NAMES if number(self.price[n].get()) is not None]
+        values = d.scale([number(self.price[n].get()) for n in names], k)       # k c
+        self._scaling = True
+        for name, v in zip(names, values):
+            self.price[name].set(f"{v:g}")
+        self._scaling = False
+        self.scale_note.pack(fill="x", pady=(0, px(14)), after=self._scale_note_after)
+
     def filter_foods(self):
         q, kind = self.search.get().strip().lower(), self.food_filter.get()
         shown = 0
@@ -1538,6 +1802,15 @@ class DietApp(tk.Tk):
         self._filling = False
         self.diet.set("Anything")
         self.variety.set(4)
+        self.meals.set(3)
+        self._meals_before = 3
+        self.planned.set(3)
+        self.plan_seg.set_options(self._plan_options())
+        self._meals_note()
+        self.budget.set("")
+        self.budget_period.set("plan")
+        self.shop_days.set(1)
+        self.scale_note.pack_forget()
         self.search.set("")
         self.food_filter.set("all")
         self.prev_cost = None
@@ -1604,36 +1877,73 @@ class DietApp(tk.Tk):
             return self.no_menu("Every food is turned off or left out by the eating style. "
                                 "Turn some on in Foods, or pick another eating style.")
 
-        p = d.build_problem("Adult woman", diet, self.variety.get(), prices, exclude, limits, own_max)
-        s = d.solve_diet(p)
+        # Planning m of M meals: every daily goal AND every serving cap is multiplied by f = m / M.
+        # The variety level and the foods' own maximums are per day, so a meal's cap is f times the
+        # day's. Without that, one meal could use the whole day's allowance of the cheapest food.
+        f = self.share()
+        plan_limits = d.meal_limits(limits, f)
+        plan_own_max = d.meal_caps(own_max, f)
+        p = d.build_problem("Adult woman", diet, self.variety.get() * f, prices, exclude, plan_limits, plan_own_max)
+        s = d.solve_diet(p)                             # the real solve, aimed at the divided goals
+        self.bought.clear()
         if s is None:
             caps = [-v for v in p.h[len(p.h) - len(p.names):]]      # the last rows of h are -cap
             best = d.mat_vec(p.N, caps)                 # the most of each nutrient we could ever get
             hints = [f"{name} can't reach {fmt(lo)} {unit}" for (name, unit), (lo, _), b
-                     in zip(d.NUTRIENTS, limits, best) if lo is not None and b < lo - 1e-9]
+                     in zip(d.NUTRIENTS, plan_limits, best) if lo is not None and b < lo - 1e-9]
             why = f" ({'; '.join(hints)})" if hints else ": each limit can be met alone, but not all at once"
             tip = (" With plants only, the sodium minimum is the usual cause: clear it on the Limits page."
                    if diet == "plant-based" else "")
             return self.no_menu("No menu meets every limit" + why + ". Try a higher variety level, "
                                 "“Anything”, more foods, or a lower minimum." + tip)
         self.banner.pack_forget()
-        self.show_tiles(p, s, limits)
+        self.result = (p, s, plan_limits, limits)
+        self.budget_options = self._budget_options(p, s, diet, prices, exclude, own_max, plan_limits,
+                                                   plan_own_max, limits)
+        self.show_plan_labels()
+        self.show_tiles(p, s, plan_limits)
         self.show_menu(p, s)
-        self.show_nutrition(p, s, limits)
+        self.show_nutrition(p, s, plan_limits, limits)
         self.show_foods(p, s)
         self.show_why(p, s)
         self.show_steps(p, s)
+        self.show_budget()
+
+    def _budget_options(self, p, s, diet, prices, exclude, own_max, plan_limits, plan_own_max, limits):
+        """
+        The numbers behind "What your budget can do", worked out once per solve and cached, so
+        typing a budget only compares numbers. Each one uses math the program already has:
+          fewer meals    k meals cost k × (cost per meal): the menu scales with the goals
+          variety        the existing variety_costs (one group: these limits) times f
+          Anything       one more solve with the same divided goals and caps
+        """
+        f = self.share()
+        meal_cost = s.cost / self.planned.get()
+        fewer = [(k, k * meal_cost) for k in range(self.planned.get() - 1, 0, -1)]
+        days = d.variety_costs(diet, prices, exclude, own_max, {"current": limits}, self.VARIETIES)["current"]
+        variety = [(v, f * cost) for v, cost in zip(self.VARIETIES, days)
+                   if v != self.variety.get() and not math.isnan(cost)]
+        anything = None
+        if diet != "anything":
+            other = d.solve_diet(d.build_problem("Adult woman", "anything", self.variety.get() * f, prices, exclude,
+                                                 plan_limits, plan_own_max))
+            anything = other.cost if other else None
+        return dict(fewer=fewer, variety=variety, anything=anything)
 
     def no_menu(self, text):
         self.banner_text.configure(text=text)
         self.banner.pack(fill="x", pady=(px(16), 0), before=self.stack)
         self.menu_text, self.prev_cost, self.in_menu = "", None, {}
+        self.result, self.budget_options = None, None
+        self.bought.clear()
+        self.show_plan_labels()
         value, note = self.tiles["cost"]
         value.configure(text="No menu", fg=DANGER)
         note.configure(text="see the message below", fg=MUTED)
         for key in ("meal", "foods", "targets"):
             self.tiles[key][0].configure(text="–", fg=TEXT)
             self.tiles[key][1].configure(text="")
+        self.show_budget()
         empty = "No menu to show. Change the settings to find one."
         for rows in (self.menu_list, self.nut_list, self.why_drivers, self.why_caps, self.why_missed):
             rows.show([], empty=empty)
@@ -1652,6 +1962,26 @@ class DietApp(tk.Tk):
             canvas.draw_idle()
 
     # ------------------------------------------------------------------ views
+    def show_plan_labels(self):
+        """Titles that say what is being planned: the whole day, 1 meal or 2 meals."""
+        whole, k, m, words = self.whole_day(), self.planned.get(), self.meals.get(), self.plan_words()
+        self.tile_labels["cost"].configure(text="DAILY COST" if whole else f"COST OF {words.upper()}")
+        self.menu_card.title.configure(text="Today's foods" if whole else f"Foods for {words}")
+        split = "" if whole or k < 2 else f"For {words}. Split each amount in half for each meal. "
+        self.menu_card.subtitle.configure(text=split + "Click a food to change its price. Tick the circle when "
+                                                       "you've bought it.")
+        self.nut_card.title.configure(text="Daily totals" if whole else f"Totals for {words}")
+        self.nut_card.subtitle.configure(
+            text="Each dot is the day's total. It must sit inside the green range." if whole else
+            f"Goals for {k} of {m} meals ({self.share_text()} of each daily limit). Each dot is the total "
+            "for these meals. It must sit inside the green range.")
+        if whole:
+            self.limits_note.pack_forget()
+        else:
+            self.limits_note.configure(text=f"These are daily limits. You're planning {k} of {m} meals, so the "
+                                            f"solver uses {self.share_text()} of each.")
+            self.limits_note.pack(fill="x", pady=(0, px(12)), before=self._limits_table)
+
     def show_tiles(self, p, s, limits):
         value, note = self.tiles["cost"]
         value.configure(text=f"₱{s.cost:.2f}", fg=ACCENT)
@@ -1665,13 +1995,15 @@ class DietApp(tk.Tk):
             note.configure(text="unchanged by your last change", fg=MUTED)
         self.prev_cost = s.cost
 
-        self.tiles["meal"][0].configure(text=f"₱{s.cost / 3:.2f}", fg=TEXT)
-        self.tiles["meal"][1].configure(text="if split into three meals")
+        k, m = self.planned.get(), self.meals.get()
+        self.tiles["meal"][0].configure(text=f"₱{s.cost / k:.2f}", fg=TEXT)
+        self.tiles["meal"][1].configure(text=f"1 of {m} meals" if k == 1 and m > 1 else
+                                        "1 meal a day" if k == 1 else f"each of {k} meals")
         used = sum(x > 1e-6 for x in s.x)
         self.tiles["foods"][0].configure(text=str(used), fg=TEXT)
         self.tiles["foods"][1].configure(text=f"out of {len(p.names)} available")
 
-        totals = d.mat_vec(p.N, s.x)                         # N x: the day's nutrient totals
+        totals = d.mat_vec(p.N, s.x)                         # N x: the totals, against the planned goals
         limited = [(t, lo, hi) for t, (lo, hi) in zip(totals, limits) if lo is not None or hi is not None]
         met = sum((lo is None or t >= lo - 1e-6) and (hi is None or t <= hi + 1e-6) for t, lo, hi in limited)
         drivers = sum(v > 1e-7 and lab[0] != "cap" for v, lab in zip(s.y, p.labels))
@@ -1679,19 +2011,14 @@ class DietApp(tk.Tk):
                                            fg=GOOD if met == len(limited) else DANGER)
         self.tiles["targets"][1].configure(text=f"{drivers} limit{'s' if drivers != 1 else ''} drive the cost"
                                            if drivers else "none is holding the cost up")
+        self._fit_tiles()
 
     def show_menu(self, p, s):
         costs = [x * c for x, c in zip(s.x, p.c)]           # what each food adds to c . x
         used = [j for j in sorted(range(len(costs)), key=lambda j: -costs[j]) if s.x[j] > 1e-6]
         colors = [PALETTE[i % len(PALETTE)] for i in range(len(used))]
-        total = s.cost if s.cost > 1e-9 else 1.0
-        rows = [(p.names[j], f"Buy {d.amount(p.names[j], s.x[j])}", costs[j], costs[j] / total, color)
-                for j, color in zip(used, colors)]
-        self.menu_list.show(rows, footer=s.cost)
-        group = self.group.get() or f"custom limits from {self.last_group}"
-        self.menu_text = (f"Cheapest day: ₱{s.cost:.2f} ({group}, {self.diet.get().lower()}, at most "
-                          f"{self.variety.get()} servings of any food; {PRICE_SOURCE} prices)\n" + "\n".join(
-                              f"- {p.names[j]}: {d.amount(p.names[j], s.x[j])} (₱{costs[j]:.2f})" for j in used))
+        self.menu_order = list(zip(used, colors))           # the list and the slices share colors
+        self.show_shopping()
 
         ax = self.menu_ax
         ax.clear()
@@ -1702,14 +2029,62 @@ class DietApp(tk.Tk):
         ax.set_aspect("equal")
         ax.text(0, 0.08, f"₱{s.cost:.2f}", ha="center", va="center", fontsize=18, fontweight="semibold",
                 color=TEXT)
-        ax.text(0, -0.16, "per day", ha="center", va="center", fontsize=9.5, color=MUTED)
+        ax.text(0, -0.16, "per day" if self.whole_day() else f"for {self.plan_words()}", ha="center",
+                va="center", fontsize=9.5, color=MUTED)
         self.menu_canvas.draw_idle()
 
-    def show_nutrition(self, p, s, limits):
-        totals = d.mat_vec(p.N, s.x)                         # N x: the day's nutrient totals
+    def show_shopping(self, keep_scroll=False):
+        """The Menu list: the planned menu times the days to shop for, with the checklist and budget line."""
+        if self.result is None:
+            return
+        p, s = self.result[:2]
+        days = self.shop_days.get()
+        x = d.scale(s.x, days)                              # what to buy for `days` days
+        costs = [xj * cj for xj, cj in zip(x, p.c)]
+        total = d.dot(p.c, x)                               # c . x for those days
+        share = total if total > 1e-9 else 1.0
+        rows = [(p.names[j], f"Buy {d.amount(p.names[j], x[j])}", costs[j], costs[j] / share, color,
+                 p.names[j] in self.bought) for j, color in self.menu_order]
+        words = "the day" if self.whole_day() else self.plan_words()
+        label = f"Total for {words}" if days == 1 else \
+            f"Total for {days} days" + ("" if self.whole_day() else f" of {self.plan_words()}")
+        bought = sum(row[2] for row in rows if row[5])
+        bought_line = (f"Bought ₱{bought:.2f} · still to buy ₱{total - bought:.2f}", ACCENT_TEXT) \
+            if self.bought else None
+        budget_line = self._budget_line(s.cost, days)
+        self.menu_list.show(rows, footer=(label, total, budget_line, bought_line),
+                            footer_rows=1 + bool(budget_line or bought_line), keep_scroll=keep_scroll)
+
+    def _budget_line(self, cost, days):
+        """'Budget ₱70.00 · this meal ₱68.48 · every goal met ✓', or how short it is."""
+        check = self.budget_status()
+        if check is None:
+            return None
+        noun = "this day" if self.whole_day() else "this meal" if self.planned.get() == 1 else \
+            f"these {self.planned.get()} meals"
+        budget, spend = check.plan_budget, cost
+        if self.budget_period.get() == "week" and days == 7:     # compare the week's total with the week's budget
+            budget, spend, noun = self.budget_value(), 7 * cost, "7 days"
+        if budget >= spend - 1e-9:
+            return f"Budget ₱{budget:.2f} · {noun} ₱{spend:.2f} · every goal met ✓", GOOD
+        cheapest = "the cheapest day" if self.whole_day() else "the cheapest meal" if self.planned.get() == 1 \
+            else f"the cheapest {self.planned.get()} meals"
+        if noun == "7 days":
+            cheapest = "the cheapest 7 days"
+        meets, verb = ("meets", "is") if cheapest.endswith(("day", "meal")) else ("meet", "are")
+        return (f"Budget ₱{budget:.2f} · {cheapest} that {meets} the goals {verb} ₱{spend:.2f} · "
+                f"₱{spend - budget:.2f} short", DANGER)
+
+    def show_nutrition(self, p, s, limits, daily):
+        """`limits` are the goals that were solved (divided for the plan); `daily` the Limits page's."""
+        totals = d.mat_vec(p.N, s.x)                         # N x: the totals for the planned meals
         priced = {(k, n) for v, (k, n, _) in zip(s.y, p.labels) if v > 1e-7 and k != "cap"}
         rows = []
-        for (name, unit), (lo, hi), t in zip(d.NUTRIENTS, limits, totals):
+        for (name, unit), (lo, hi), t, (dlo, dhi) in zip(d.NUTRIENTS, limits, totals, daily):
+            day = None
+            if not self.whole_day() and (dlo is not None or dhi is not None):
+                day = f"{fmt(dlo)} to {fmt(dhi)}" if dlo is not None and dhi is not None else fmt(
+                    dlo if dlo is not None else dhi)
             if (lo is not None and t < lo - 1e-6) or (hi is not None and t > hi + 1e-6):
                 status = "missed"
             elif ("min", name) in priced or ("max", name) in priced:
@@ -1718,7 +2093,7 @@ class DietApp(tk.Tk):
                 status = "limit"
             else:
                 status = "met"
-            rows.append((name, unit, t, lo, hi, status))
+            rows.append((name, unit, t, lo, hi, status, day))
         self.nut_list.show(rows)
 
     def _food_status(self, name, servings):
@@ -1764,23 +2139,180 @@ class DietApp(tk.Tk):
         d.draw_solver_progress(self.steps_ax, s, line=ACCENT)          # figure 4 of the report
         self.steps_canvas.draw_idle()
 
+    # ------------------------------------------------------------------ budget (compares cached numbers only)
+    def budget_value(self):
+        """The budget box as a number, or None when it is empty or not a number of zero or more."""
+        text = self.budget.get().strip()
+        return None if text == "" else number(text)
+
+    def budget_status(self):
+        """d.budget_check for the current menu, or None with no menu or no budget."""
+        budget = self.budget_value()
+        if self.result is None or budget is None:
+            return None
+        return d.budget_check(self.result[1].cost, budget, PERIOD_DAYS[self.budget_period.get()],
+                              self.planned.get(), self.meals.get())
+
+    def show_budget(self):
+        """Everything that follows the budget box. Typing in it never re-solves."""
+        text, budget = self.budget.get().strip(), self.budget_value()
+        self.budget_entry.configure(style="TEntry" if text == "" or budget is not None else "Invalid.TEntry")
+        period, days = self.budget_period.get(), PERIOD_DAYS[self.budget_period.get()]
+        per = "for the whole day" if self.whole_day() else f"for {self.plan_words()} a day"
+        if text == "":
+            self.budget_info.configure(text="Leave it empty for no budget.", fg=MUTED)
+        elif budget is None:
+            self.budget_info.configure(text="Type a number of zero or more, or leave it empty.", fg=DANGER)
+        elif period == "plan":
+            self.budget_info.configure(text=f"₱{budget:,.2f} {per}", fg=MUTED)
+        else:
+            span = "a week" if period == "week" else "a month (30 days)"
+            day = "a day" if self.whole_day() else f"a day for {self.plan_words()}"
+            self.budget_info.configure(text=f"₱{budget:,.2f} {span} = ₱{budget / days:,.2f} {day}", fg=MUTED)
+
+        check = self.budget_status()
+        value, note = self.tiles["budget"]
+        if self.result is None:
+            value.configure(text="–", fg=TEXT)
+            note.configure(text="")
+        elif check is None:
+            value.configure(text="Not set", fg=MUTED)
+            note.configure(text="enter one in the left panel", fg=MUTED)
+        elif check.fits:
+            value.configure(text=f"₱{check.left:.2f} left", fg=GOOD)
+            note.configure(text=f"goals met for {self.plan_words()}", fg=MUTED)
+        else:
+            covers = check.meals_covered
+            value.configure(text=f"₱{-check.left:.2f} short", fg=DANGER)
+            note.configure(text=f"covers {covers:.1f} of a meal's goals" if covers < 1 else
+                           f"covers {covers:.1f} meals", fg=MUTED)
+        self._meter = (self.result[1].cost, check.plan_budget) if check else None
+        self._draw_meter()
+        self._fit_tiles()
+
+        if self.result is not None:
+            self.show_shopping(keep_scroll=True)
+            self.menu_text = self._menu_text()
+        self.show_budget_card(check)
+        self._variety_redraw = True
+        if self.page.get() == "Variety":
+            self.after_idle(self.show_variety)
+
+    def show_budget_card(self, check):
+        """When the budget is short: the settings that fit, each one click away."""
+        if check is None or check.fits or self.budget_options is None:
+            self.budget_card.grid_remove()
+            self.donut_card.grid()
+            return
+        opts, budget, k = self.budget_options, check.plan_budget, self.planned.get()
+        rows = []
+        instead = "the whole day" if self.whole_day() else str(k)
+        for n, cost in opts["fewer"]:                      # n meals cost n × (cost per meal)
+            if cost <= budget + 1e-9:
+                rows.append(("meals", n, f"Plan {n} meal{'s' if n > 1 else ''} instead of {instead}",
+                             f"{n} × ₱{check.meal_cost:.2f} a meal", cost))
+        for v, cost in opts["variety"]:                    # most variety first
+            if cost <= budget + 1e-9:
+                rows.append(("variety", v, f"Variety {v}: at most {v} servings of any food",
+                             "more variety" if v < self.variety.get() else "less variety", cost))
+        if opts["anything"] is not None and opts["anything"] <= budget + 1e-9:
+            rows.append(("diet", "Anything", "Eating style “Anything”", "every food, same goals",
+                         opts["anything"]))
+
+        s = self.result[1]
+        minimum = d.dot(self.result[0].h, s.y)             # h . y, the mirror problem's value
+        cheapest = ("day that meets" if self.whole_day() else
+                    "meal that meets" if k == 1 else f"{k} meals that meet")
+        for_part = "" if self.whole_day() else f" for {k} of {self.meals.get()} meals"
+        verb = "is" if self.whole_day() or k == 1 else "are"
+        if rows:
+            self.budget_card.subtitle.configure(
+                text=f"The solver's guaranteed minimum (h · y = ₱{minimum:.2f}) proves nothing cheaper meets "
+                     f"these goals, but these settings fit ₱{budget:.2f}. Click one to switch.")
+        else:
+            self.budget_card.subtitle.configure(text=f"The guaranteed minimum is h · y = ₱{minimum:.2f}.")
+        empty = (f"No setting fits ₱{budget:.2f}. The cheapest {cheapest} {self._whose()} goals{for_part} {verb} "
+                 f"₱{s.cost:.2f}, and the solver's guaranteed minimum proves nothing cheaper meets every goal. "
+                 "You could raise the budget, lower a limit on the Limits page, or edit a price on the "
+                 "Foods page.")
+        self.donut_card.grid_remove()
+        self.budget_card.grid(row=0, column=1, sticky="nsew")
+        self.budget_list.show(rows, empty=empty)
+
+    def _whose(self):
+        """"a Teen boy's", "an Adult woman's" or "your custom"."""
+        group = self.group.get()
+        if not group:
+            return "your custom"
+        return f"{'an' if group[0] in 'AEIOU' else 'a'} {group}'s"
+
+    def use_budget_option(self, row):
+        kind, value = row[:2]
+        if kind == "meals":
+            self.planned.set(value)
+            self.planned_chosen()
+        elif kind == "variety":
+            self.use_setting(self.group.get(), value)
+        else:
+            self.diet.set(value)
+            self.solve()
+
+    def _menu_text(self):
+        """What Copy menu puts on the clipboard."""
+        p, s, plan_limits, _ = self.result
+        k, m = self.planned.get(), self.meals.get()
+        group = self.group.get() or f"custom limits from {self.last_group}"
+        if self.whole_day():
+            what = "Cheapest day"
+        else:
+            what = f"Cheapest {'meal' if k == 1 else f'{k} meals'} ({k} of {m} a day)"
+        lines = [f"{what}: ₱{s.cost:.2f} ({group}, {self.diet.get().lower()}, at most {self.variety.get()} "
+                 f"servings of any food a day; {PRICE_SOURCE} prices)"]
+        limited = [i for i, (lo, hi) in enumerate(plan_limits) if lo is not None or hi is not None]
+        shown = [need_text(*plan_limits[i], d.NUTRIENTS[i][1]) + ("" if i == 0 else f" {d.NUTRIENTS[i][0].lower()}")
+                 for i in (0, 1) if i in limited]                       # calories and protein
+        others = len(limited) - len(shown)
+        goals = " and ".join(shown) + (f", and {others} other limit{'s' if others != 1 else ''}" if others else "")
+        if not shown:
+            goals = f"all {others} limits"
+        share = "" if self.whole_day() else f" ({self.share_text()} of the day's)"
+        lines.append(f"Goals met{share}: {goals}")
+        check = self.budget_status()
+        if check:
+            state = (f"₱{check.left:.2f} left, every goal met" if check.fits else
+                     f"₱{-check.left:.2f} short of the cheapest menu that meets the goals")
+            per = "the whole day" if self.whole_day() else f"{self.plan_words()} a day"
+            lines.append(f"Budget: ₱{check.plan_budget:.2f} for {per}. {state}.")
+        lines += [f"- {p.names[j]}: {d.amount(p.names[j], s.x[j])} (₱{s.x[j] * p.c[j]:.2f})"
+                  for j, _ in self.menu_order]
+        return "\n".join(lines)
+
     VARIETIES = range(2, 9)
 
     def show_variety(self):
-        """The Variety page for the current eating style, prices and foods. About 0.2 s (28 solves)."""
-        if not self._variety_stale or not hasattr(self, "figure_inputs"):
+        """
+        The Variety page for the current eating style, prices and foods, always for the whole day
+        (figure_inputs holds the daily limits). About 0.2 s (28 solves) when the inputs changed;
+        a budget change only redraws the chart.
+        """
+        if not hasattr(self, "figure_inputs") or not (self._variety_stale or self._variety_redraw):
             return
-        self._variety_stale = False
-        diet, prices, exclude, own_max, limits = self.figure_inputs
-        groups, current = dict(d.PRESETS), self.group.get()
-        if not current and limits is not None:          # custom limits get their own line
-            groups["Your limits"] = limits
-            current = "Your limits"
-        costs = d.variety_costs(diet, prices, exclude, own_max, groups, self.VARIETIES)
-        self._variety_costs = costs
+        if self._variety_stale:
+            self._variety_stale = False
+            diet, prices, exclude, own_max, limits = self.figure_inputs
+            groups, current = dict(d.PRESETS), self.group.get()
+            if not current and limits is not None:          # custom limits get their own line
+                groups["Your limits"] = limits
+                current = "Your limits"
+            self._variety_costs = d.variety_costs(diet, prices, exclude, own_max, groups, self.VARIETIES)
+            self._variety_current = current
+        self._variety_redraw = False
+        costs, current = self._variety_costs, self._variety_current
+        check = self.budget_status()
         self.variety_ax.clear()
         d.draw_variety(self.variety_ax, costs, self.VARIETIES,
-                       mark=(current, self.variety.get()) if current else None)
+                       mark=(current, self.variety.get()) if current else None,
+                       budget=check.day_budget if check else None)     # budget for the plan ÷ f
         self.variety_canvas.draw_idle()
 
         if not current:

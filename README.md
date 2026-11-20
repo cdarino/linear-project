@@ -82,24 +82,49 @@ python3 -m pip install matplotlib
 python3 diet_gui.py
 ```
 
+On a Mac, install Python from [python.org/downloads](https://www.python.org/downloads/) even if `python3` already works. The `python3` that comes with Apple's Command Line Tools (version 3.9) uses an old window toolkit, Tk 8.5, and the app freezes with it: no window, or a blank one, while the terminal stays busy. To check, run `python3 -c "import tkinter; print(tkinter.TkVersion)"`. It should print `8.6` or higher. After installing, close and reopen VS Code so that `python3` finds the new Python.
+
 On Linux, install the window toolkit first: `sudo apt install python3-tk` (Debian or Ubuntu) or `sudo dnf install python3-tkinter` (Fedora). If pip refuses with `externally-managed-environment`, see [If pip refuses to install](#if-pip-refuses-to-install-mac-or-linux) at the end of this page. The window was designed on Windows, so its spacing can look slightly different.
 
 ## Using the app
 
-Use the **left panel** to choose who the menu is for, the eating style and the variety level (the most servings of any one food). The tiles at the top always show the daily cost, the cost per meal, how many foods are used and how many targets are met. **Copy menu** copies the menu as text, and **Reset all** restores every default.
+Use the **left panel** to choose who the menu is for, the eating style and the variety level (the most servings of any one food). **Copy menu** copies the menu as text, and **Reset all** restores every default.
+
+### Meals and budget
+
+The **Meals and budget** section at the bottom of the left panel (scroll down on a small window) lets you plan only some of the day's meals:
+
+- **Meals a day**: 1, 2 or 3. **Plan for**: how many of those meals you are buying for, or the whole day. Planning 1 of 3 meals divides every daily goal by 3 (maximums too: one meal gets a third of the day's sodium allowance), and every serving cap with it. The solver then finds the cheapest food that meets those goals. The note under the controls says which share of the day you are planning.
+- **Budget**: what you can spend on the meals you are planning. Leave it empty for no budget. **Budget is for** sets whether that amount covers one day of those meals, a week (7 days) or a month (30 days). The note under it shows the amount that is compared, for example "₱490.00 a week = ₱70.00 a day for 1 meal".
+
+The goals always come first: the budget is checked against the cheapest menu that meets them, so being within budget never means missing a goal.
+
+### The tiles
+
+The tiles at the top show, on every page:
+
+| Tile | What it shows |
+|---|---|
+| Daily cost (or Cost of 1 meal, Cost of 2 meals) | The cheapest cost of the meals you are planning |
+| Per meal | That cost divided by the number of planned meals |
+| Foods on the menu | How many foods are used |
+| Targets met | How many goals are met, counted against the divided goals |
+| Budget | "Not set" with no budget. Otherwise how much is left (green) or how much is short (red), with a thin meter for the cost against the budget. When short, it says how many meals' goals the budget covers. |
+
+### The pages
 
 | Tab | What it shows |
 |---|---|
-| Menu | The cheapest day as a shopping list: how much of each food to buy and what it costs. Click a food to edit its price. |
-| Nutrition | Each day's total against its minimum and maximum. |
-| Foods | Turn foods on or off, search, and edit prices (per kg, or per egg) and each food's daily maximum. |
-| Limits | Edit the minimum and maximum for each nutrient. Leave a box empty for no limit. |
-| Why | Which limits push the cost up, and how much cheaper an unused food would need to be. |
-| Variety | What a more varied menu costs, for every group and at every level. Click a point or a row to switch to that setting. This is report figure 5, drawn for your current settings. |
+| Menu | The cheapest food for the planned meals as a shopping list: how much of each food to buy and what it costs. **Shop for** 1, 3 or 7 days multiplies the list. Tick the circle at the left of a row when you've bought it, and the footer shows what is bought and what is still to buy. Click the rest of a row to edit the food's price. With a budget, a line above the total compares it with the cost. When the budget is short, **What your budget can do** lists settings that fit (fewer meals, another variety level, or the "Anything" eating style); click one to switch. |
+| Nutrition | Each total against its goals. When you plan part of the day, each row also shows the daily figure, for example "need at least 1,003 kcal (day: 3,010)". |
+| Foods | Turn foods on or off, search, and edit prices (per kg, or per egg) and each food's daily maximum. **−10%** and **+10%** change every price at once: the cost changes by the same percent, but the menu stays the same. |
+| Limits | Edit the daily minimum and maximum for each nutrient. Leave a box empty for no limit. When you plan part of the day, the solver uses the same share of each. |
+| Why | Which limits push the cost up, and how much cheaper an unused food would need to be, for the meals you are planning. |
+| Variety | What a more varied menu costs for the whole day, for every group and at every level. Click a point or a row to switch to that setting. With a budget, a dashed line shows it as a whole-day amount. This is report figure 5, drawn for your current settings. |
 | Solver steps | Every pivot of the simplex method, and the guaranteed minimum after each one (report figure 4). |
 | Guide | How to use the program and how the math works, with the 2-food example drawn in two dimensions (report figure 6). |
 
-Press **Ctrl+1** to **Ctrl+8** to switch tabs.
+Press **Ctrl+1** to **Ctrl+8** to switch tabs, and **Alt+1** to **Alt+3** to set the meals a day.
 
 ## Run from the command line
 
